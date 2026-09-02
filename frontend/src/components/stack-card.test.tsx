@@ -77,6 +77,22 @@ describe("StackCard", () => {
     expect(screen.getByRole("button", { name: "Restart" })).toBeDisabled()
   })
 
+  it.each(["stopped", "not_created", "unknown"] as const)(
+    "cannot update a %s stack, because up -d would start it",
+    (status) => {
+      renderCard(stack({ status }))
+      expect(screen.getByRole("button", { name: "Update" })).toBeDisabled()
+    }
+  )
+
+  it.each(["running", "partial"] as const)(
+    "can update a %s stack",
+    (status) => {
+      renderCard(stack({ status }))
+      expect(screen.getByRole("button", { name: "Update" })).toBeEnabled()
+    }
+  )
+
   it("refuses every action on an ambiguous stack", () => {
     renderCard(
       stack({

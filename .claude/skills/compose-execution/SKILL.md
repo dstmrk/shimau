@@ -31,6 +31,14 @@ containing `down`, precisely so nobody adds it as a convenience.
 fails, `run_steps` returns without recreating anything: reporting success after
 recreating containers on the *old* image is the failure mode that matters.
 
+**Only Start may bring a stack up.** `up -d` creates whatever is missing and
+`restart` starts stopped containers, so Update and Restart would each start a
+stack that is down — a state change nobody asked for. Both buttons are gated on
+the stack being up in `frontend/src/components/stack-card.tsx`; the gate is
+asserted in `frontend/src/components/stack-card.test.tsx`. The backend does not
+re-check the status: it would cost a `docker compose ps` before every action and
+still race with a stack stopped from elsewhere.
+
 ## The environment allowlist is load-bearing
 
 Every child process gets `env_clear()` and then only `FORWARDED_ENV`: `PATH`,

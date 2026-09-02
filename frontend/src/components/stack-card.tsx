@@ -39,6 +39,10 @@ export function StackCard({
   onEnv: () => void
 }) {
   const ambiguous = stack.kind === "ambiguous"
+  // Gates Restart and Update. Both end in a Compose call that would create or
+  // start containers on a stack that is down — `restart` starts stopped ones,
+  // and Update finishes with `up -d` — so neither is offered until the stack
+  // is up. Starting a stack is what Start is for.
   const isUp = stack.status === "running" || stack.status === "partial"
 
   return (
@@ -83,7 +87,7 @@ export function StackCard({
             )}
             <Button
               variant="outline"
-              disabled={busy}
+              disabled={busy || !isUp}
               onClick={() => onAction("update")}
             >
               <DownloadIcon data-icon="inline-start" />
