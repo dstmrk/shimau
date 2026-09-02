@@ -230,6 +230,46 @@ async fn logging_in_lists_the_discovered_stacks() {
 }
 
 #[tokio::test]
+async fn identity_carries_the_running_version() {
+    // The header shows this number and every support question starts with it,
+    // so it has to come from the binary that is actually serving the request.
+    // Both shapes matter: the browser takes its identity from the login
+    // response on sign-in and from `/me` on reload.
+    let h = harness().await;
+
+    let body = serde_json::json!({ "username": "admin", "password": PASSWORD });
+    let (status, login_body, cookies) = send(
+        &h.router,
+        request("POST", "/api/auth/login")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json(&login_body)["version"], env!("CARGO_PKG_VERSION"));
+
+    let cookie = cookies
+        .first()
+        .and_then(|c| c.split(';').next())
+        .expect("login must set a session cookie")
+        .to_string();
+
+    let (status, me_body, _) = send(
+        &h.router,
+        request("GET", "/api/auth/me")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let me_body = json(&me_body);
+    assert_eq!(me_body["username"], "admin");
+    assert_eq!(me_body["version"], env!("CARGO_PKG_VERSION"));
+}
+
+#[tokio::test]
 async fn logout_invalidates_the_session() {
     let h = harness().await;
     let cookie = login(&h.router).await;

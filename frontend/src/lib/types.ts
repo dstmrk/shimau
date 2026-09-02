@@ -47,4 +47,6 @@ export interface EnvContent extends FileContent {
 
 export interface Identity {
   username: string
+  /** Version of the backend serving this session, shown in the header. */
+  version: string
 }

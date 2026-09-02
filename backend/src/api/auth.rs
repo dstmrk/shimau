@@ -24,6 +24,20 @@ pub struct LoginRequest {
 #[derive(Serialize)]
 pub struct IdentityResponse {
     pub username: String,
+    /// The version of the binary answering the request. It travels with the
+    /// identity because the browser already fetches that on every load, and it
+    /// is read from the crate rather than from a build argument so it cannot
+    /// disagree with the code that is running.
+    pub version: &'static str,
+}
+
+impl IdentityResponse {
+    fn for_user(username: String) -> Self {
+        Self {
+            username,
+            version: env!("CARGO_PKG_VERSION"),
+        }
+    }
 }
 
 /// `POST /api/auth/login`
@@ -84,9 +98,7 @@ pub async fn login(
     Ok((
         StatusCode::OK,
         [(header::SET_COOKIE, cookie)],
-        Json(IdentityResponse {
-            username: user.username,
-        }),
+        Json(IdentityResponse::for_user(user.username)),
     )
         .into_response())
 }
@@ -106,9 +118,7 @@ pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> ApiRes
 
 /// `GET /api/auth/me`
 pub async fn me(Extension(user): Extension<AdminUser>) -> Json<IdentityResponse> {
-    Json(IdentityResponse {
-        username: user.username,
-    })
+    Json(IdentityResponse::for_user(user.username))
 }
 
 /// Rejects unauthenticated requests and attaches the administrator to the

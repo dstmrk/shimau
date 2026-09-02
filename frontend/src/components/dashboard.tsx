@@ -81,7 +81,12 @@ export function Dashboard({
         <div className="flex items-center gap-2.5">
           <LayersIcon className="size-5 shrink-0 text-primary" aria-hidden />
           <div>
-            <h1 className="font-medium">shimau</h1>
+            <div className="flex items-baseline gap-1.5">
+              <h1 className="font-medium">shimau</h1>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                v{identity.version}
+              </span>
+            </div>
             <p className="text-xs text-muted-foreground">
               Signed in as {identity.username}
             </p>
