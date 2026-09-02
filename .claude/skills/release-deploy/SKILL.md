@@ -39,10 +39,12 @@ every Node bump.
 **Never cancel a run on main.** `cancel-in-progress` is scoped to
 `github.ref != 'refs/heads/main'`. Every push to main shares
 `refs/heads/main`, so a blanket cancel lets a quick series of merges kill each
-other's `publish`. That is not theoretical: five Dependabot PRs merged a
-minute apart cancelled the first arm64 publish mid-flight and nothing reached
-GHCR. Superseded pull-request pushes are still cancelled, which is where the
-saving actually is.
+other's run. That is not theoretical: five Dependabot PRs merged a minute
+apart cancelled the build in flight. Main no longer publishes, but the `image`
+job is the only thing that proves a merged commit builds and starts, so
+cancelling it leaves a commit nobody ever built — and the next merge tests its
+own tree, not that one. Superseded pull-request pushes are still cancelled,
+which is where the saving actually is.
 
 ## The base: Debian stable, and all three stages together
 
@@ -86,17 +88,41 @@ consider the stub build current.
 
 ## Tags
 
-The publish job runs only on a push (never a pull request: a fork's token
-cannot write packages) and only after the checks and the image smoke test have
-passed.
+**Only a version tag publishes.** The job is gated on
+`startsWith(github.ref, 'refs/tags/v')`, and still runs after the checks and
+the image smoke test have passed.
 
-| trigger          | tags                                   |
-| ---------------- | -------------------------------------- |
-| push to `main`   | `latest`, `main-<short-sha>`           |
-| tag `vX.Y.Z`     | `X.Y.Z`, `X.Y`                         |
+| trigger           | tags                     |
+| ----------------- | ------------------------ |
+| pull request      | nothing                  |
+| push to `main`    | nothing                  |
+| tag `vX.Y.Z`      | `X.Y.Z`, `X.Y`, `latest` |
+| tag `vX.Y.Z-rc.N` | `X.Y.Z-rc.N`             |
 
-A merge to main publishes `latest`. Cutting a release means pushing a `vX.Y.Z`
-tag and bumping `version` in `backend/Cargo.toml`.
+`latest` comes from `flavor: latest=auto`: the metadata action moves it onto a
+semver tag and leaves it where it is for a prerelease. `{{major}}.{{minor}}`
+degrades to the full version on a prerelease as well, so `v1.3.0-rc.1`
+publishes exactly one tag and never claims to be `1.3`. Cutting a release is a
+commit bumping `version` in `backend/Cargo.toml`, then a `vX.Y.Z` tag on it.
+
+Why not on every merge: shimau is pulled by hand into other people's homelabs.
+A `latest` that moves on every merge — five Dependabot PRs in a minute, a
+refactor half landed — reaches them, and it makes "which version are you
+running?" unanswerable. Tag-only publishing also makes a release atomic: a tag
+whose build fails has published nothing, so recovery is delete the tag, fix,
+tag again.
+
+The price is that **arm64 is only built at release time**, since the `image`
+job is amd64 by design. A cross-compile or QEMU apt breakage lands on main
+unnoticed and surfaces on the tag. That is the accepted trade: validating
+arm64 on every merge means running the expensive half of the publish on every
+merge, which is the cost being removed, and a failed tag build ships nothing.
+So when a change touches the Dockerfile — a base bump, a new apt package, a
+Dependabot docker PR — build arm64 by hand before merging:
+
+```bash
+docker buildx build --platform linux/arm64 .
+```
 
 ## Accepted vulnerabilities
 
