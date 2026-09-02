@@ -87,6 +87,27 @@ depend on `stack` alone;
 `frontend/src/components/compose-dialog.test.tsx` re-renders the parent and
 asserts one fetch, so the trap cannot come back quietly.
 
+## Web Storage may not be there
+
+`localStorage` is not guaranteed. A browser set to block site data **throws**
+on access rather than returning null; a private window can have it disabled;
+and a test environment may not provide it at all — which is how this surfaced,
+when the CI Node major moved to 26 and the theme provider took the suite red
+with `Cannot read properties of undefined (reading 'getItem')`.
+
+`frontend/src/components/theme-provider.tsx` now reads and writes through
+`readStoredTheme` / `writeStoredTheme`, which swallow both cases. Losing a
+remembered preference is a shrug; taking the whole app down with it is not.
+Anything else that reaches for `localStorage`, `sessionStorage` or `matchMedia`
+owes the same treatment, and
+`frontend/src/components/theme-provider.test.tsx` shows the shape of the test:
+stub the global to `undefined` and to a throwing object, and assert the
+component still renders.
+
+The tempting fix — stubbing storage in `frontend/src/test/setup.ts` — is the
+wrong one. It makes the suite green while leaving the crash reachable by
+users.
+
 ## Lazy-load the editors
 
 `ComposeDialog` and `EnvDialog` pull in CodeMirror, which is larger than the

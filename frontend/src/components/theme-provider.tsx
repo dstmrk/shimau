@@ -31,6 +31,29 @@ function isTheme(value: string | null): value is Theme {
   return THEME_VALUES.includes(value as Theme)
 }
 
+/**
+ * Web Storage is not guaranteed. A browser set to block site data throws on
+ * access rather than returning null, a private window can have it disabled,
+ * and it is simply absent in some non-browser environments. Losing the
+ * remembered theme is a shrug; taking the whole app down with it is not.
+ */
+function readStoredTheme(storageKey: string): Theme | null {
+  try {
+    const stored = window.localStorage?.getItem(storageKey) ?? null
+    return isTheme(stored) ? stored : null
+  } catch {
+    return null
+  }
+}
+
+function writeStoredTheme(storageKey: string, theme: Theme) {
+  try {
+    window.localStorage?.setItem(storageKey, theme)
+  } catch {
+    // Nothing to do: the theme still applies for this page.
+  }
+}
+
 function getSystemTheme(): ResolvedTheme {
   if (window.matchMedia(COLOR_SCHEME_QUERY).matches) {
     return "dark"
@@ -65,18 +88,13 @@ export function ThemeProvider({
   disableTransitionOnChange = true,
   ...props
 }: ThemeProviderProps) {
-  const [theme, setThemeState] = React.useState<Theme>(() => {
-    const storedTheme = localStorage.getItem(storageKey)
-    if (isTheme(storedTheme)) {
-      return storedTheme
-    }
-
-    return defaultTheme
-  })
+  const [theme, setThemeState] = React.useState<Theme>(
+    () => readStoredTheme(storageKey) ?? defaultTheme
+  )
 
   const setTheme = React.useCallback(
     (nextTheme: Theme) => {
-      localStorage.setItem(storageKey, nextTheme)
+      writeStoredTheme(storageKey, nextTheme)
       setThemeState(nextTheme)
     },
     [storageKey]
@@ -122,7 +140,15 @@ export function ThemeProvider({
 
   React.useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.storageArea !== localStorage) {
+      // A cross-document write from another tab. Guarded because localStorage
+      // may not exist here at all.
+      let storage: Storage | undefined
+      try {
+        storage = window.localStorage
+      } catch {
+        return
+      }
+      if (!storage || event.storageArea !== storage) {
         return
       }
 
