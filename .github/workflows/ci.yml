@@ -7,9 +7,14 @@ on:
   pull_request:
     branches: [main]
 
+# Superseded pull-request pushes are cancelled; runs on main never are.
+# Every push to main shares refs/heads/main, so cancel-in-progress would let a
+# quick series of merges kill each other's `publish` — which is exactly what
+# happened when five Dependabot PRs landed a minute apart and the first arm64
+# publish was cancelled mid-flight, leaving nothing on GHCR.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Least privilege by default; the publish job widens it for itself.
 permissions:
@@ -59,7 +64,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          # Must match the node image the Dockerfile builds the frontend with.
+          # Testing on one major and shipping a bundle built by another is a
+          # gap the suite cannot see.
+          node-version: 26
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install
@@ -98,7 +106,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: 26
       - name: Check paths and skills cited in the docs still exist
         run: node scripts/check-docs.mjs
 

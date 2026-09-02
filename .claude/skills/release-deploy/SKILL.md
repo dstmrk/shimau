@@ -27,6 +27,23 @@ the arm64 build fails on an exact-version pin. The suite in that URL has to
 match the Dockerfile's base, and the package version string carries it
 (`…-1~debian.13~trixie`), so a base bump and a version bump are the same edit.
 
+## Two versions that must not drift apart
+
+**The Node major in the Dockerfile and in `.github/workflows/ci.yml` are the
+same number.** CI lints, type-checks and tests the frontend on one Node; the
+image builds the shipped bundle with another. Let those diverge and the suite
+is green on a runtime nobody ships. Dependabot bumps the Dockerfile (docker
+ecosystem) without touching the workflow pin, so this pair needs a human on
+every Node bump.
+
+**Never cancel a run on main.** `cancel-in-progress` is scoped to
+`github.ref != 'refs/heads/main'`. Every push to main shares
+`refs/heads/main`, so a blanket cancel lets a quick series of merges kill each
+other's `publish`. That is not theoretical: five Dependabot PRs merged a
+minute apart cancelled the first arm64 publish mid-flight and nothing reached
+GHCR. Superseded pull-request pushes are still cancelled, which is where the
+saving actually is.
+
 ## The base: Debian stable, and all three stages together
 
 The frontend builder, the backend builder and the runtime are all Debian 13
