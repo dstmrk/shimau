@@ -122,6 +122,7 @@ npm run build
 # Repository
 cd ..
 node scripts/check-docs.mjs
+node scripts/check-contrast.mjs
 for suite in .claude/hooks/test-*.sh; do bash "$suite"; done
 ```
 
