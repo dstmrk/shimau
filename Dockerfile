@@ -22,7 +22,7 @@ RUN npm run build
 # =============================================================================
 # Stage 2: backend — cross-compiled Rust binary
 # =============================================================================
-FROM --platform=$BUILDPLATFORM rust:1.94-bookworm AS backend
+FROM --platform=$BUILDPLATFORM rust:1.98-bookworm AS backend
 WORKDIR /build
 
 ARG TARGETARCH
