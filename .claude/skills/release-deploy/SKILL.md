@@ -160,6 +160,32 @@ Trivy scans it. Only then does the multi-arch build run.
 
 If you change the Dockerfile, that job is what tells you whether it works.
 
+## The operator never edits compose.yaml
+
+`compose.yaml` reads every value from `.env` beside it, and the README's quick
+start is four commands: `curl` both files from `main`, fill in two lines,
+`up -d`. The point is not brevity — it is that the file most likely to be
+mistyped is the one nobody types.
+
+`SHIMAU_STACKS_DIR` in particular is written **once** and used **twice**, for
+the container's environment and for the bind mount:
+
+```yaml
+environment:
+  SHIMAU_STACKS_DIR: ${SHIMAU_STACKS_DIR:?set SHIMAU_STACKS_DIR in .env}
+volumes:
+  - ${SHIMAU_STACKS_DIR:?}:${SHIMAU_STACKS_DIR:?}
+```
+
+Two literals can drift apart and produce a subtly broken install (see the
+identical-path requirement below); one variable cannot. Verify a change here
+with `docker compose config` — no daemon needed — and check that the mount's
+`source` and `target` come out equal, and that removing the variable fails
+with a message naming it.
+
+Keep the required set small. Every value the quick start asks for is a value
+someone can get wrong.
+
 ## The identical-path requirement
 
 `SHIMAU_STACKS_DIR` must be the same path inside and outside the container.
