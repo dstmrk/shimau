@@ -73,7 +73,7 @@ export function ConsoleOutput({
               key={index}
               className={cn(
                 "break-words whitespace-pre-wrap",
-                line.stream === "stderr" && "text-destructive"
+                line.stream === "stderr" && "text-muted-foreground"
               )}
             >
               {line.text}
