@@ -52,6 +52,7 @@ shimau/
 | Where does an action's live output come from? | `backend/src/ops/mod.rs` |
 | What is the route table? | `backend/src/api/mod.rs` |
 | Where is the session checked? | `backend/src/api/auth.rs` (`require_session`) |
+| Where does the version in the header come from? | `backend/src/api/auth.rs` (`IdentityResponse`) |
 | How is a password hashed? | `backend/src/auth/password.rs` |
 | Where is the login throttle? | `backend/src/auth/ratelimit.rs` |
 | Which HTTP status does an error map to? | `backend/src/error.rs` |
