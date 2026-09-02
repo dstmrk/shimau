@@ -17,13 +17,36 @@ reviewed change.
 To find the current package versions:
 
 ```bash
-curl -s https://download.docker.com/linux/debian/dists/bookworm/stable/binary-amd64/Packages \
+curl -s https://download.docker.com/linux/debian/dists/trixie/stable/binary-amd64/Packages \
   | grep -E '^(Package|Version):' | paste - - \
   | grep -E 'docker-ce-cli|docker-compose-plugin' | tail -4
 ```
 
 Check `binary-arm64` too — both architectures must have the same version, or
-the arm64 build fails on an exact-version pin.
+the arm64 build fails on an exact-version pin. The suite in that URL has to
+match the Dockerfile's base, and the package version string carries it
+(`…-1~debian.13~trixie`), so a base bump and a version bump are the same edit.
+
+## The base: Debian stable, and all three stages together
+
+The frontend builder, the backend builder and the runtime are all Debian 13
+(trixie). Two rules:
+
+- **Track Debian stable, not oldstable.** The MVP shipped on bookworm, which
+  was already oldstable by then. Nothing was broken — Trivy scanned the Debian
+  layer clean — but a base one release behind gets security updates on
+  narrower terms, and the gap only widens. Check `deb.debian.org/debian/dists/stable/Release`
+  for the current codename when this comes up again.
+- **Bump the three stages together.** The binary links against the builder's
+  glibc and runs against the runtime's. Move the builder forward alone and the
+  container dies at startup with `GLIBC_2.xx not found`; bookworm shipped
+  glibc 2.36, trixie ships 2.41. Moving the runtime forward alone happens to
+  work, which is worse — it hides the mistake until the next bump.
+
+Alpine was considered and rejected: `rusqlite` compiles SQLite from C, and a
+musl cross sysroot for aarch64 is not in the Debian archive, so it would add a
+third-party toolchain to the build. It would not have removed a single Trivy
+finding either — those live in Docker's own Go binaries, identical on any base.
 
 ## Why the build is shaped the way it is
 

@@ -5,11 +5,16 @@
 #
 # Both builder stages run on the BUILD platform and cross-compile, because
 # emulating a Rust build under QEMU for arm64 costs tens of minutes.
+#
+# All three stages are Debian 13 (trixie) and must be bumped together: the
+# binary is linked against the builder's glibc and run against the runtime's.
+# Moving the builder forward alone gives `GLIBC_2.xx not found` at startup;
+# bookworm ships glibc 2.36, trixie 2.41.
 
 # =============================================================================
 # Stage 1: frontend — architecture-independent static assets
 # =============================================================================
-FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS frontend
+FROM --platform=$BUILDPLATFORM node:22-trixie-slim AS frontend
 WORKDIR /build
 
 COPY frontend/package.json frontend/package-lock.json ./
@@ -22,7 +27,7 @@ RUN npm run build
 # =============================================================================
 # Stage 2: backend — cross-compiled Rust binary
 # =============================================================================
-FROM --platform=$BUILDPLATFORM rust:1.94-bookworm AS backend
+FROM --platform=$BUILDPLATFORM rust:1.94-trixie AS backend
 WORKDIR /build
 
 ARG TARGETARCH
@@ -68,13 +73,13 @@ RUN touch src/main.rs src/lib.rs \
 # =============================================================================
 # Stage 3: runtime
 # =============================================================================
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 # Pinned deliberately: an image that manages Compose projects should not
 # inherit whatever CLI version happens to be current on rebuild. Bumping these
 # is a reviewed change (spec §9.2).
-ARG DOCKER_CLI_VERSION=5:29.7.2-1~debian.12~bookworm
-ARG DOCKER_COMPOSE_VERSION=5.5.0-1~debian.12~bookworm
+ARG DOCKER_CLI_VERSION=5:29.7.2-1~debian.13~trixie
+ARG DOCKER_COMPOSE_VERSION=5.5.0-1~debian.13~trixie
 
 RUN set -eux; \
     apt-get update; \
@@ -83,7 +88,7 @@ RUN set -eux; \
     curl -fsSL https://download.docker.com/linux/debian/gpg \
       | gpg --dearmor -o /etc/apt/keyrings/docker.gpg; \
     chmod a+r /etc/apt/keyrings/docker.gpg; \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian trixie stable" \
       > /etc/apt/sources.list.d/docker.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
