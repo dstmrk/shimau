@@ -36,6 +36,70 @@ the theme in an app full of editors is a surprise, not a feature.
 Delete a generated component that nothing imports. Unused UI primitives are
 bundle weight and lint noise.
 
+A third edit to a generated file is now in place, in `button.tsx`, and the
+reason is below.
+
+## Button emphasis carries the meaning
+
+Four tiers, and a stack card uses all four (`stack-card.tsx`):
+
+| Tier | What it means | Variant | On the card |
+| --- | --- | --- | --- |
+| Solid primary | the affirmative lifecycle action | `default` | Start |
+| Destructive tint | takes services offline | `destructive` | Stop |
+| Outline | changes something, stack stays up | `outline` | Update, Restart |
+| Ghost | only opens a view | `ghost` | Logs, Compose, `.env` |
+
+Colour is spent, not sprinkled. Two things it is deliberately **not** spent on:
+
+**Start is not green.** There is no `--success` token; the emerald in
+`status-badge.tsx` is a raw Tailwind colour. A green Start would mean inventing
+a semantic colour for one control, and it would collide — emerald *is* the
+"Running" dot, so a green Start always sits beside a dot that is not green,
+pairing the hue that means running with the state that is not.
+
+**Update and Restart are not coloured.** Colour on every lifecycle action is
+the Portainer/Dockge look: on fifteen rows it is sixty coloured chips, and the
+status dots stop being the thing the eye finds.
+
+## The destructive variant could not read its own label
+
+`--destructive` was doing double duty: the tint background *and* the text on
+it. At 12px `font-medium` that measured **3.99:1** at rest and **3.31:1** on
+hover, against the 4.5:1 that WCAG 1.4.3 asks — and it got worse exactly under
+the pointer. Every other control in the app is comfortably clear of that
+(Start 5.49, outline 19.71), so Stop would have been the one illegible button,
+which is the opposite of what a stop button is for.
+
+So `--destructive-emphasis` exists in `index.css`: the destructive hue at a
+strength you can read *as text on the tint*. It is not
+`--destructive-foreground` — in shadcn that name means the near-white you put
+on a solid fill, and reusing it here would invert the convention.
+
+```text
+light  oklch(0.5 0.2 27.325)      5.57 rest · 4.63 hover
+dark   oklch(0.8 0.16 22.216)     5.98 rest · 4.97 hover
+```
+
+Check the sRGB gamut when picking such a value. The obvious light candidates at
+chroma 0.22 and above clip, and a clipped colour does not render at the ratio
+you computed.
+
+The same edit takes the variant's focus ring from `border-destructive/40` to
+full strength: at 40% it was **1.95:1** in dark mode against the **3.76:1**
+every other variant gets from `border-ring`, so switching Stop onto this
+variant would have weakened keyboard focus on the one button that must not be
+hit by accident. Now 4.76 light, 6.01 dark.
+
+Two things this deliberately left alone, both pre-existing and app-wide:
+`Alert variant="destructive"` still puts `text-destructive` on the card, and
+the shared `focus-visible:border-ring` measures 2.44:1 in light mode. Neither
+is a button colour.
+
+`stack-card.test.tsx` asserts that Stop carries the emphasis class and that no
+other button on the card does, so a `shadcn add button` that quietly restores
+the upstream variant takes the suite red rather than shipping.
+
 ## The mark
 
 lucide's `layers`, in the app's own `--primary`. It sits in the dashboard
