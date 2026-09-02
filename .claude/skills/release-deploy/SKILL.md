@@ -58,6 +58,32 @@ passed.
 A merge to main publishes `latest`. Cutting a release means pushing a `vX.Y.Z`
 tag and bumping `version` in `backend/Cargo.toml`.
 
+## Accepted vulnerabilities
+
+`.trivyignore.yaml` carries the findings the image ships with, each scoped to
+the binary it was found in, with a reason and an `expired_at`.
+
+Everything in it today is in a Go binary Docker built: the CLI's Go standard
+library, and the Compose plugin's vendored `x/crypto`, `x/mod` and `grpc`.
+None can be fixed from this repository — the pinned versions are already the
+newest published, and only a Docker rebuild moves them. The Debian layer
+itself scans clean.
+
+Three rules for that file:
+
+- **Scope every entry to a path.** A CVE ignored globally is a CVE that stops
+  failing the build when it appears in *our* code. `paths:` is what keeps the
+  gate meaningful.
+- **`expired_at` is the review, and nothing else is.** Dependabot's docker
+  ecosystem tracks base images, not the apt version pins in the runtime stage,
+  so no bot will notice a Docker release that fixes these. When an entry
+  lapses, CI goes red and someone reads it again.
+- **Never extend a date without re-reading the finding.** The statement has to
+  survive being read by someone who did not write it.
+
+`TRIVY_SHOW_SUPPRESSED` is set on the step, so accepted findings still print
+in the job log instead of vanishing.
+
 ## The image job is the gate
 
 `.github/workflows/ci.yml` builds amd64, starts the container against a real

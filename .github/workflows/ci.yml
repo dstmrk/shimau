@@ -221,8 +221,14 @@ jobs:
         if: always()
         run: docker rm -f shimau-smoke || true
 
+      # Fails on anything CRITICAL or HIGH that is not listed in
+      # .trivyignore.yaml, which carries the accepted findings with a reason
+      # and an expiry date. Suppressed rows still print, so an accepted CVE
+      # stays visible in the log rather than disappearing.
       - name: Trivy — image scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_SHOW_SUPPRESSED: "true"
         with:
           image-ref: shimau:ci
           format: table
@@ -230,6 +236,7 @@ jobs:
           ignore-unfixed: true
           vuln-type: os,library
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore.yaml
 
   publish:
     name: Publish to GHCR
