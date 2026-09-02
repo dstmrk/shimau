@@ -61,7 +61,7 @@ export function StackCard({
         </div>
 
         {ambiguous ? (
-          <div className="flex items-start gap-2 text-xs text-destructive">
+          <div className="flex items-start gap-2 text-xs text-destructive-emphasis">
             <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
             <p>
               Several Compose files in this directory. shimau will not act on it

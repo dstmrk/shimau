@@ -36,8 +36,9 @@ the theme in an app full of editors is a surprise, not a feature.
 Delete a generated component that nothing imports. Unused UI primitives are
 bundle weight and lint noise.
 
-A third edit to a generated file is now in place, in `button.tsx`, and the
-reason is below.
+Two more are in `button.tsx` and `alert.tsx`, both moving red text onto
+`--destructive-emphasis`; the reason is below. Four exceptions is enough — the
+next one wants a call-site `className` first.
 
 ## Button emphasis carries the meaning
 
@@ -62,39 +63,39 @@ pairing the hue that means running with the state that is not.
 the Portainer/Dockge look: on fifteen rows it is sixty coloured chips, and the
 status dots stop being the thing the eye finds.
 
-## The destructive variant could not read its own label
+## Contrast is a gate, not a habit
 
-`--destructive` was doing double duty: the tint background *and* the text on
-it. At 12px `font-medium` that measured **3.99:1** at rest and **3.31:1** on
-hover, against the 4.5:1 that WCAG 1.4.3 asks — and it got worse exactly under
-the pointer. Every other control in the app is comfortably clear of that
-(Start 5.49, outline 19.71), so Stop would have been the one illegible button,
-which is the opposite of what a stop button is for.
+`scripts/check-contrast.mjs` reads the tokens out of `index.css`, composites
+the tints the UI actually renders, and fails when a pair drops below what its
+role requires — 4.5:1 for text, 3:1 for a focus indicator. CI runs it as
+**Theme contrast**. `node scripts/check-contrast.mjs --report` prints every
+pair with its ratio, which is the fastest way to tune a token.
 
-So `--destructive-emphasis` exists in `index.css`: the destructive hue at a
-strength you can read *as text on the tint*. It is not
-`--destructive-foreground` — in shadcn that name means the near-white you put
-on a solid fill, and reusing it here would invert the convention.
+Move a token and the gate tells you what you broke, so the ratios are not
+repeated here. What the gate cannot tell you:
 
-```text
-light  oklch(0.5 0.2 27.325)      5.57 rest · 4.63 hover
-dark   oklch(0.8 0.16 22.216)     5.98 rest · 4.97 hover
-```
+**Composite alpha in gamma-encoded sRGB, not linear light.** A browser blends a
+translucent layer against the encoded value behind it. Getting this wrong moved
+the tinted pairs by about a point and a half — enough to invent failures that
+are not there, or hide real ones. The script does it correctly; a calculation
+done any other way has to match it.
 
-Check the sRGB gamut when picking such a value. The obvious light candidates at
-chroma 0.22 and above clip, and a clipped colour does not render at the ratio
-you computed.
+**Check the sRGB gamut.** The obvious light red candidates at chroma 0.22 and
+above clip, and a clipped colour does not render at the ratio you computed.
 
-The same edit takes the variant's focus ring from `border-destructive/40` to
-full strength: at 40% it was **1.95:1** in dark mode against the **3.76:1**
-every other variant gets from `border-ring`, so switching Stop onto this
-variant would have weakened keyboard focus on the one button that must not be
-hit by accident. Now 4.76 light, 6.01 dark.
+**A tint background is the trap.** `--destructive` used to do double duty as
+the tint *and* the text on it, which is how the Stop button ended up below 4:1
+while the same red on a plain card was comfortably fine. Hence
+`--destructive-emphasis`: the destructive hue at a strength readable as text.
+It is not `--destructive-foreground` — in shadcn that name means the near-white
+you put on a solid fill, and reusing it would invert the convention. Every red
+text in the app uses the emphasis token, so there is one red for one meaning.
 
-Two things this deliberately left alone, both pre-existing and app-wide:
-`Alert variant="destructive"` still puts `text-destructive` on the card, and
-the shared `focus-visible:border-ring` measures 2.44:1 in light mode. Neither
-is a button colour.
+**Contrast is not the whole of a focus ring.** The destructive variant's ring
+was `border-destructive/40` and the shared `--ring` was light enough to fail
+1.4.11 outright; both are at full strength now. `--ring` shows only on
+`:focus-visible`, so a darker value costs mouse users nothing and buys keyboard
+users the indicator the spec asks for.
 
 `stack-card.test.tsx` asserts that Stop carries the emphasis class and that no
 other button on the card does, so a `shadcn add button` that quietly restores

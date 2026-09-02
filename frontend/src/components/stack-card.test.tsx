@@ -106,6 +106,20 @@ describe("StackCard", () => {
     expect(screen.getByText(/Several Compose files/)).toBeInTheDocument()
   })
 
+  it("gives the ambiguous-stack warning the same red as Stop", () => {
+    renderCard(
+      stack({
+        kind: "ambiguous",
+        compose_file: undefined,
+        compose_files: ["compose.yaml", "docker-compose.yml"],
+      })
+    )
+    const warning = screen
+      .getByText(/Several Compose files/)
+      .closest(".text-destructive-emphasis")
+    expect(warning).not.toBeNull()
+  })
+
   it("gives Stop the destructive emphasis and nothing else on the card", () => {
     renderCard(stack({ status: "running", has_env_file: true }))
     const stop = screen.getByRole("button", { name: "Stop" })
