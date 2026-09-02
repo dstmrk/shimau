@@ -57,6 +57,33 @@ stream, axum drops the response body, which drops the `LineStream`, which kills
 `docker compose logs --follow`. Without it every opened log dialog would leak a
 process for the lifetime of the container.
 
+## The browser renders a terminal, not a byte stream
+
+The API relays what Docker printed, verbatim; `frontend/src/lib/terminal.ts`
+turns that into what a terminal would have shown, and `ConsoleOutput` is the
+only place it is called.
+
+- **Escape sequences.** `--no-color` silences Compose's service prefix and
+  nothing else: a container colours its own output, so a Homebridge line
+  arrives as `ESC[36m[Nuki]ESC[39m …` and renders in a `<pre>` as literal
+  `[36m` noise. Colour, cursor and erase sequences, operating-system commands
+  and stray control characters are stripped; a carriage return keeps only the
+  frame after it, because that is all the terminal ever showed.
+- **Progress redraws.** `--progress plain` prints every tick on its own line,
+  so one `pull` produces a hundred `d21668d1c7b3 Extracting 61.83MB` lines.
+  `collapseProgress` folds them back onto one row per layer or container,
+  keyed on everything left of a status word from a closed list —
+  `Warning` and `Error` are not on it, so a failure is never overwritten.
+
+Collapsing is opt-in and only `OperationConsole` sets it. Container logs are
+arbitrary text: two identical-looking lines there are two events, and the log
+viewer shows both.
+
+Neither transform reaches the replay buffer, so a 2000-line buffer still fills
+with raw progress ticks during a long `pull`. Collapsing at the source would
+mean parsing Compose output in the backend as well — the same knowledge in two
+languages, for a transcript nobody reads after the run.
+
 ## A stopped stack is not an error
 
 `docker compose logs --follow` on a stack with no containers returns what

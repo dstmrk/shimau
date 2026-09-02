@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import { toDisplayLines } from "@/lib/terminal"
 import { cn } from "@/lib/utils"
 import type { OutputLine } from "@/lib/types"
 
@@ -9,18 +10,29 @@ import type { OutputLine } from "@/lib/types"
  * Follows the tail while the reader is at the bottom, and stops following the
  * moment they scroll up — so reading back through a long `pull` is not fought
  * by every incoming line.
+ *
+ * Lines arrive as Docker wrote them and are rendered as a terminal would show
+ * them: see `frontend/src/lib/terminal.ts`. `collapseProgress` folds Compose's
+ * progress redraws onto one line each, and belongs to Compose output only.
  */
 export function ConsoleOutput({
   lines,
   emptyMessage = "No output yet.",
+  collapseProgress = false,
   className,
 }: {
   lines: OutputLine[]
   emptyMessage?: string
+  collapseProgress?: boolean
   className?: string
 }) {
   const viewport = React.useRef<HTMLDivElement>(null)
   const [following, setFollowing] = React.useState(true)
+
+  const shown = React.useMemo(
+    () => toDisplayLines(lines, { collapseProgress }),
+    [lines, collapseProgress]
+  )
 
   React.useEffect(() => {
     const node = viewport.current
@@ -28,7 +40,7 @@ export function ConsoleOutput({
       return
     }
     node.scrollTop = node.scrollHeight
-  }, [lines, following])
+  }, [shown, following])
 
   const handleScroll = React.useCallback(() => {
     const node = viewport.current
@@ -50,13 +62,14 @@ export function ConsoleOutput({
           className
         )}
       >
-        {lines.length === 0 ? (
+        {shown.length === 0 ? (
           <p className="text-muted-foreground">{emptyMessage}</p>
         ) : (
-          lines.map((line, index) => (
+          shown.map((line, index) => (
             <pre
               // Output lines have no identity of their own; the index is the
-              // only stable key and the list is append-only.
+              // only stable key, and neither appending nor collapsing a
+              // progress redraw in place reorders what came before.
               key={index}
               className={cn(
                 "break-words whitespace-pre-wrap",

@@ -136,6 +136,7 @@ export function OperationConsole({
         <ConsoleOutput
           lines={lines}
           emptyMessage="Waiting for Docker Compose…"
+          collapseProgress
         />
 
         <DialogFooter>

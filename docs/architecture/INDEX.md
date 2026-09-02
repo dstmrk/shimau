@@ -59,6 +59,7 @@ shimau/
 | How does the browser follow a stream? | `frontend/src/hooks/use-event-stream.ts` |
 | Where is the stack list rendered? | `frontend/src/components/dashboard.tsx` |
 | Where are `.env` values masked? | `frontend/src/lib/env-mask.ts` |
+| How is raw command output rendered? | `frontend/src/lib/terminal.ts` |
 
 ## HTTP surface
 
