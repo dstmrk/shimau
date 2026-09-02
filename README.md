@@ -52,51 +52,84 @@ platform, use one.
 
 ## Running it
 
-```yaml
-# ~/shimau/compose.yaml — outside the directory shimau manages,
-# so it never manages itself
-services:
-  shimau:
-    image: ghcr.io/dstmrk/shimau:latest
-    container_name: shimau
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    environment:
-      SHIMAU_STACKS_DIR: /home/user/docker-apps
-      SHIMAU_ADMIN_USERNAME: admin
-      SHIMAU_ADMIN_PASSWORD: ${SHIMAU_ADMIN_PASSWORD:?}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /home/user/docker-apps:/home/user/docker-apps
-      - ./data:/app/data
-```
+shimau needs a directory of its own, **outside** the one it manages. Put it
+inside and shimau discovers itself, and the Stop button turns off the panel you
+pressed it from.
 
 ```bash
-echo 'SHIMAU_ADMIN_PASSWORD=pick-something-long' > .env
-docker compose up -d
+mkdir -p ~/shimau && cd ~/shimau
+curl -fsSL -O https://raw.githubusercontent.com/dstmrk/shimau/main/compose.yaml
+curl -fsSL -o .env https://raw.githubusercontent.com/dstmrk/shimau/main/.env.example
 ```
 
-Open <http://localhost:8080> and sign in. `SHIMAU_ADMIN_PASSWORD` is read once,
-on the first boot, to create the account; after that it is ignored and you can
-remove it.
+Now edit `.env`. Two lines are required — where your stacks live, and a
+password for the first boot:
+
+```bash
+SHIMAU_STACKS_DIR=/home/you/docker-apps
+SHIMAU_ADMIN_PASSWORD=$(openssl rand -base64 24)
+```
+
+`compose.yaml` reads everything from `.env`, so you never have to edit it.
+
+```bash
+docker compose up -d
+docker compose logs -f shimau
+```
+
+Four lines say it came up:
+
+```text
+starting shimau version="0.1.0" stacks_dir=/home/you/docker-apps
+docker compose available version=5.5.0
+administrator account created username=admin
+listening address=0.0.0.0:8080
+```
+
+The second one is the one to check: it means the Compose plugin inside the
+image works, and every action in the UI depends on it.
+
+Open <http://localhost:8080> and sign in.
+
+> **If the login bounces straight back to the form**, with no error, you are
+> reaching shimau over plain `http://`. The browser drops the `Secure` session
+> cookie on an insecure connection. Set `SHIMAU_COOKIE_SECURE=false` in `.env`
+> and `docker compose up -d` again — or put shimau behind TLS, which is the
+> better answer for something that controls Docker.
+
+`SHIMAU_ADMIN_PASSWORD` is read once, on the first boot, to create the account.
+After that it is ignored and the line can go.
 
 Images are published for `linux/amd64` and `linux/arm64`.
+
+### Updating
+
+```bash
+cd ~/shimau && docker compose pull && docker compose up -d
+```
+
+Your stacks are untouched: shimau keeps nothing about them. Its own database
+holds one account and its sessions, in `./data`.
 
 ### The one requirement that bites
 
 **The stacks path must be identical inside and outside the container.**
 
+This is why `compose.yaml` writes `SHIMAU_STACKS_DIR` once and uses it twice —
+for the container's configuration *and* for the bind mount:
+
 ```yaml
+environment:
+  SHIMAU_STACKS_DIR: ${SHIMAU_STACKS_DIR:?}
 volumes:
-  - /home/user/docker-apps:/home/user/docker-apps   # same on both sides
+  - ${SHIMAU_STACKS_DIR:?}:${SHIMAU_STACKS_DIR:?}   # same on both sides
 ```
 
-Compose files use relative bind mounts (`./data:/data`), and it is the *host*
-Docker daemon that resolves them. Mount your stacks at a different path inside
-the container and every relative volume in every managed stack will point
-somewhere that does not exist. This is why shimau does not let you configure
-the two sides separately.
+Two literal paths could drift apart; one variable cannot. And they must not
+drift, because your Compose files use relative bind mounts (`./data:/data`)
+that the *host* Docker daemon resolves. Mount your stacks at a different path
+inside the container and every relative volume in every managed stack points
+somewhere that does not exist.
 
 ### Configuration
 

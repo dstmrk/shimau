@@ -1,11 +1,15 @@
 # shimau's own Compose project.
 #
+# Nothing in this file needs editing: every value comes from `.env` next to it.
+# Copy `.env.example` to `.env`, fill in two lines, and run `docker compose up -d`.
+#
 # Keep this directory OUTSIDE the stacks directory it manages, so shimau never
 # discovers and acts on itself (spec §9).
 #
-#   /home/user/
+#   /home/you/
 #   ├── shimau/            ← this file
 #   │   ├── compose.yaml
+#   │   ├── .env
 #   │   └── data/
 #   └── docker-apps/       ← SHIMAU_STACKS_DIR
 #       ├── octotracker/
@@ -17,31 +21,34 @@ services:
     container_name: shimau
     restart: unless-stopped
     ports:
+      # Reaching shimau only through a reverse proxy or tunnel? Bind it to
+      # loopback instead: "127.0.0.1:8080:8080".
       - "8080:8080"
-    environment:
-      # The managed stacks directory. This path must be IDENTICAL inside and
-      # outside the container — Compose files use relative bind mounts that the
-      # host daemon resolves against the host filesystem (spec §6.3).
-      SHIMAU_STACKS_DIR: /home/user/docker-apps
 
-      # First boot only: creates the administrator, then these are ignored.
-      # Remove them once the account exists.
-      SHIMAU_ADMIN_USERNAME: admin
+    environment:
+      # The managed stacks directory, written once and used twice — here and
+      # in the bind mount below. Two literals could drift apart; one variable
+      # cannot. See "the one requirement that bites" in the README.
+      SHIMAU_STACKS_DIR: ${SHIMAU_STACKS_DIR:?set SHIMAU_STACKS_DIR in .env}
+
+      # First boot only: these create the administrator, then they are ignored
+      # and can be removed.
+      SHIMAU_ADMIN_USERNAME: ${SHIMAU_ADMIN_USERNAME:-admin}
       SHIMAU_ADMIN_PASSWORD: ${SHIMAU_ADMIN_PASSWORD:?set SHIMAU_ADMIN_PASSWORD in .env}
 
-      # Set to false only when reaching shimau over plain HTTP: a browser drops
-      # a Secure cookie sent over http://, which shows up as a login that
-      # "succeeds" and immediately bounces back to the form.
-      SHIMAU_COOKIE_SECURE: "true"
+      # Set to "false" in .env when reaching shimau over plain HTTP: a browser
+      # drops a Secure cookie sent over http://, which looks like a login that
+      # succeeds and bounces straight back to the form.
+      SHIMAU_COOKIE_SECURE: ${SHIMAU_COOKIE_SECURE:-true}
 
-      # SHIMAU_SESSION_TTL_HOURS: "168"
-      # SHIMAU_LOG_TAIL: "200"
-      # SHIMAU_LOG: "info"
+      SHIMAU_SESSION_TTL_HOURS: ${SHIMAU_SESSION_TTL_HOURS:-168}
+      SHIMAU_LOG: ${SHIMAU_LOG:-info}
+
     volumes:
       # The host Docker daemon. shimau shells out to `docker compose`; it never
       # runs a daemon of its own.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Same path on both sides — see SHIMAU_STACKS_DIR above.
-      - /home/user/docker-apps:/home/user/docker-apps
+      # Same path on both sides — that is what the single variable guarantees.
+      - ${SHIMAU_STACKS_DIR:?}:${SHIMAU_STACKS_DIR:?}
       # shimau.db: the administrator account and its sessions, nothing else.
       - ./data:/app/data
