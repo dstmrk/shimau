@@ -9,7 +9,7 @@
 # =============================================================================
 # Stage 1: frontend — architecture-independent static assets
 # =============================================================================
-FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS frontend
+FROM --platform=$BUILDPLATFORM node:26-bookworm-slim AS frontend
 WORKDIR /build
 
 COPY frontend/package.json frontend/package-lock.json ./
