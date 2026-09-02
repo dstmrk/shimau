@@ -43,10 +43,21 @@ export function ComposeDialog({
   )
   const openSearch = React.useRef<(() => void) | null>(null)
 
+  // Held in a ref, not read from the closure: the parent passes a new
+  // callback identity on every render, and listing it in the effect deps
+  // below would re-run the fetch on every dashboard poll — overwriting
+  // whatever the user had typed.
+  const close = React.useRef(onOpenChange)
+  React.useEffect(() => {
+    close.current = onOpenChange
+  })
+
   const [shownStack, setShownStack] = React.useState(stack)
   if (stack !== shownStack) {
     setShownStack(stack)
     setValidationError(null)
+    setContent("")
+    setOriginal("")
     setLoading(stack !== null)
   }
 
@@ -72,7 +83,7 @@ export function ComposeDialog({
               ? error.message
               : "Could not read the file"
           )
-          onOpenChange(false)
+          close.current(false)
         }
       })
       .finally(() => {
@@ -83,7 +94,7 @@ export function ComposeDialog({
     return () => {
       cancelled = true
     }
-  }, [stack, onOpenChange])
+  }, [stack])
 
   const dirty = content !== original
 

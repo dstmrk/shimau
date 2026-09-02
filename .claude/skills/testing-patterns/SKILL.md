@@ -74,6 +74,19 @@ stack offers no actions) rather than the markup.
 parameter is what makes `mock.calls[0][0]` typed, and the build type-checks
 tests too.
 
+**Do not try to type into CodeMirror under jsdom.** It calls
+`getClientRects()` during measurement, which jsdom does not implement, and the
+failure surfaces as an unhandled error from an animation frame rather than a
+clean assertion. Test what surrounds the editor — that the file is fetched
+once, that the filename is shown — and leave the save path to
+`backend/tests/api.rs`, where it is exercised against a real
+`docker compose config`.
+
+**A modal makes the rest of the page unreachable by role.** A button rendered
+outside the dialog is inside an `aria-hidden` subtree, so `getByRole` will not
+find it. To force a parent re-render, use `rerender()` from `render()` rather
+than clicking something.
+
 Coverage excludes `frontend/src/components/ui/` (generated) and
 `frontend/src/main.tsx` (a three-line bootstrap).
 

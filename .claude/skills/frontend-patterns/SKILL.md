@@ -1,6 +1,6 @@
 ---
 name: frontend-patterns
-description: Use when writing or changing React code under frontend/src — components, hooks, dialogs, the API client, the shadcn/ui setup, the theme, or the Vite build. Covers the shadcn preset this project is pinned to and how to add components, adjusting state during render instead of in an effect (React 19 lint rules), keeping refs out of render, lazy-loading the CodeMirror editors, the typed API client and its ApiError, and the design constraints the spec puts on the UI.
+description: Use when writing or changing React code under frontend/src — components, hooks, dialogs, the API client, the shadcn/ui setup, the theme, or the Vite build. Covers the shadcn preset this project is pinned to and how to add components, adjusting state during render instead of in an effect (React 19 lint rules), keeping refs out of render, why a parent-supplied callback must never sit in an effect dependency array, lazy-loading the CodeMirror editors, the typed API client and its ApiError, testing components that mount CodeMirror under jsdom, and the design constraints the spec puts on the UI.
 ---
 
 # frontend-patterns — React 19, Vite, shadcn/ui
@@ -59,6 +59,16 @@ closure on every render must not tear down and re-open the `EventSource`.
 **Effects that fetch take a `cancelled` flag** and check it before every
 `setState`, so a dialog reopened on another stack does not get the first
 response written into it.
+
+**Never put a parent-supplied callback in an effect's dependency array.** The
+dashboard passes `onOpenChange={(open) => …}` inline, so its identity changes
+on every render — and the dashboard re-renders every ten seconds when the
+stack query polls. Listing it in the deps of the fetch effect made both
+editors silently reload the file every ten seconds, discarding unsaved edits.
+Both dialogs now hold the callback in a ref refreshed by its own effect and
+depend on `stack` alone;
+`frontend/src/components/compose-dialog.test.tsx` re-renders the parent and
+asserts one fetch, so the trap cannot come back quietly.
 
 ## Lazy-load the editors
 

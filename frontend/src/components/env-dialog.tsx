@@ -35,10 +35,21 @@ export function EnvDialog({
   const [loading, setLoading] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
 
+  // Held in a ref, not read from the closure: the parent passes a new
+  // callback identity on every render, and listing it in the effect deps
+  // below would re-run the fetch on every dashboard poll — overwriting
+  // whatever the user had typed.
+  const close = React.useRef(onOpenChange)
+  React.useEffect(() => {
+    close.current = onOpenChange
+  })
+
   const [shownStack, setShownStack] = React.useState(stack)
   if (stack !== shownStack) {
     setShownStack(stack)
     setRevealed(false)
+    setContent("")
+    setOriginal("")
     setLoading(stack !== null)
   }
 
@@ -61,7 +72,7 @@ export function EnvDialog({
           toast.error(
             error instanceof ApiError ? error.message : "Could not read .env"
           )
-          onOpenChange(false)
+          close.current(false)
         }
       })
       .finally(() => {
@@ -72,7 +83,7 @@ export function EnvDialog({
     return () => {
       cancelled = true
     }
-  }, [stack, onOpenChange])
+  }, [stack])
 
   const dirty = content !== original
 
