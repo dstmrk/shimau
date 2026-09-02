@@ -1,21 +1,29 @@
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: /
+    directory: /frontend
     schedule:
       interval: weekly
       day: monday
-    # Wait 7 days after a version is published before opening a PR.
-    # Avoids immediately adopting packages that may carry newly introduced
-    # bugs or supply-chain vulnerabilities on release day.
-    # Note: npm ecosystem only supports default-days (no semver-specific params).
+    # Wait a week after publication before opening a PR: release-day versions
+    # are where fresh bugs and supply-chain incidents live.
     cooldown:
       default-days: 7
     groups:
       minor-and-patch:
-        update-types:
-          - minor
-          - patch
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: cargo
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
     open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions
@@ -26,3 +34,12 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3

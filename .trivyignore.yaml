@@ -1,0 +1,87 @@
+# Vulnerabilities accepted in the shipped image, with the reason and a date.
+#
+# Every entry here is in a third-party Go binary shimau bundles — the Docker
+# CLI and the Compose plugin — and none of them can be fixed from this
+# repository: they need Docker to rebuild and publish, and the versions pinned
+# in the Dockerfile are already the newest published ones.
+#
+# Each entry is scoped to the binary it was found in. A CVE that later shows
+# up anywhere else in the image still fails the build, which is the point:
+# this is an exception list, not a switched-off gate.
+#
+# `expired_at` is the review mechanism. Nothing else watches the Go version
+# Docker builds with — Dependabot's docker ecosystem tracks base images, not
+# apt package pins — so when these lapse, CI goes red and someone has to look
+# at whether a newer Docker release fixes them. Do not extend a date without
+# re-reading the finding.
+
+vulnerabilities:
+  # ---------------------------------------------------------------------
+  # Docker CLI, built with Go 1.26.5. Fixed in Go 1.26.6, which no published
+  # docker-ce-cli release uses yet.
+  #
+  # All eight are parsing or protocol denial-of-service issues in the Go
+  # standard library. shimau invokes the CLI with a fixed argv against the
+  # local Docker socket and the operator's own Compose files; there is no
+  # path by which a remote party feeds these code paths. Anyone who can
+  # supply hostile input here can already edit a Compose file, which grants
+  # arbitrary containers — a far larger problem than a DoS in net/url.
+  # ---------------------------------------------------------------------
+  - id: CVE-2026-33818 # encoding/asn1: DoS via recursion in Unmarshal
+    paths: ["usr/bin/docker"]
+    statement: Go stdlib in the vendored Docker CLI; no newer docker-ce-cli release exists.
+    expired_at: 2026-12-01
+  - id: CVE-2026-39821 # x/net/idna: privilege escalation via Punycode labels
+    paths: ["usr/bin/docker"]
+    statement: Go stdlib in the vendored Docker CLI; no newer docker-ce-cli release exists.
+    expired_at: 2026-12-01
+  - id: CVE-2026-46600 # x/net/dns/dnsmessage: DoS on invalid DNS records
+    paths: ["usr/bin/docker"]
+    statement: Go stdlib in the vendored Docker CLI; no newer docker-ce-cli release exists.
+    expired_at: 2026-12-01
+  - id: CVE-2026-56853 # net/http: DoS over unencrypted HTTP/2
+    paths: ["usr/bin/docker"]
+    statement: Go stdlib in the vendored Docker CLI; no newer docker-ce-cli release exists.
+    expired_at: 2026-12-01
+  - id: CVE-2026-56858 # html/template: XSS via pathological input
+    paths: ["usr/bin/docker"]
+    statement: Go stdlib in the vendored Docker CLI; the CLI renders no HTML.
+    expired_at: 2026-12-01
+  - id: CVE-2026-56859 # encoding/xml: DoS via decoding recursion depth
+    paths: ["usr/bin/docker"]
+    statement: Go stdlib in the vendored Docker CLI; no newer docker-ce-cli release exists.
+    expired_at: 2026-12-01
+  - id: CVE-2026-56860 # net/url: DoS from quadratic path complexity
+    paths: ["usr/bin/docker"]
+    statement: Go stdlib in the vendored Docker CLI; no newer docker-ce-cli release exists.
+    expired_at: 2026-12-01
+  - id: CVE-2026-56862 # crypto/tls: DoS via indefinite KeyUpdate messages
+    paths: ["usr/bin/docker"]
+    statement: Go stdlib in the vendored Docker CLI; shimau talks to a local socket, not TLS.
+    expired_at: 2026-12-01
+
+  # ---------------------------------------------------------------------
+  # Compose plugin, vendored modules. Same situation: only Docker can rebuild.
+  # ---------------------------------------------------------------------
+  - id: CVE-2026-56854 # x/crypto/ssh: auth bypass, source-address restrictions
+    paths: ["usr/libexec/docker/cli-plugins/docker-compose"]
+    statement: >
+      Reachable only through the SSH transport (an SSH server, or
+      DOCKER_HOST=ssh://). shimau uses the mounted local socket and never
+      sets DOCKER_HOST — see the environment allowlist in
+      backend/src/compose/mod.rs.
+    expired_at: 2026-12-01
+  - id: CVE-2026-56864 # x/mod: malicious GOSUMDB serving arbitrary content
+    paths: ["usr/libexec/docker/cli-plugins/docker-compose"]
+    statement: Module-download code path; the shipped binary never downloads Go modules.
+    expired_at: 2026-12-01
+  - id: CVE-2026-56865 # x/mod/sumdb/tlog: transparency log verification bypass
+    paths: ["usr/libexec/docker/cli-plugins/docker-compose"]
+    statement: Module-download code path; the shipped binary never downloads Go modules.
+    expired_at: 2026-12-01
+  - id: CVE-2026-84304 # grpc-go
+    paths: ["usr/libexec/docker/cli-plugins/docker-compose"]
+    statement: >
+      Compose uses gRPC to reach BuildKit. shimau never builds images — its
+      action set is up/stop/restart/pull/ps/logs/config only.
+    expired_at: 2026-12-01

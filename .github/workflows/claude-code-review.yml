@@ -1,0 +1,57 @@
+name: Claude Code Review
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude-review:
+    # Only on pull request comments containing "/claude review".
+    if: |
+      github.event.issue.pull_request != null &&
+      contains(github.event.comment.body, '/claude review')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Require green CI first
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            const { data: checks } = await github.rest.checks.listForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: pr.data.head.sha,
+              per_page: 100,
+            });
+            const failed = checks.check_runs.filter(
+              (run) =>
+                run.name !== 'claude-review' &&
+                run.conclusion !== null &&
+                !['success', 'skipped', 'neutral'].includes(run.conclusion)
+            );
+            if (failed.length > 0) {
+              core.setFailed(
+                `CI is not green. Failing: ${failed.map((r) => r.name).join(', ')}`
+              );
+            }
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@e5ad3c7725bc2459721893f88879fef9dbcf97b0 # v1.0.202
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.issue.number }}"
