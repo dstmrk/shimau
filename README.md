@@ -81,7 +81,10 @@ Open <http://localhost:8080> and sign in. `SHIMAU_ADMIN_PASSWORD` is read once,
 on the first boot, to create the account; after that it is ignored and you can
 remove it.
 
-Images are published for `linux/amd64` and `linux/arm64`.
+Images are published for `linux/amd64` and `linux/arm64`, one set per
+release: `latest` is the newest tagged version, `X.Y.Z` and `X.Y` pin you to
+one. Merges to `main` are tested but never published, so `latest` does not
+move under you between releases.
 
 ### The one requirement that bites
 

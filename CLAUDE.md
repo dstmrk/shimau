@@ -14,7 +14,7 @@ nothing else.
 
 **Stack:** Rust · Axum · Tokio · rusqlite · Argon2id — React 19 · TypeScript ·
 Vite · Tailwind 4 · shadcn/ui · TanStack Query · CodeMirror. One container,
-published to `ghcr.io/dstmrk/shimau` on every merge to `main`.
+published to `ghcr.io/dstmrk/shimau` on every version tag.
 
 The product specification the repository is built from is in
 `docs/spec.md`; the codebase map is in `docs/architecture/INDEX.md`. Version
