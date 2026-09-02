@@ -14,7 +14,7 @@
 # =============================================================================
 # Stage 1: frontend — architecture-independent static assets
 # =============================================================================
-FROM --platform=$BUILDPLATFORM node:22-trixie-slim AS frontend
+FROM --platform=$BUILDPLATFORM node:26-trixie-slim AS frontend
 WORKDIR /build
 
 COPY frontend/package.json frontend/package-lock.json ./
@@ -27,7 +27,7 @@ RUN npm run build
 # =============================================================================
 # Stage 2: backend — cross-compiled Rust binary
 # =============================================================================
-FROM --platform=$BUILDPLATFORM rust:1.94-trixie AS backend
+FROM --platform=$BUILDPLATFORM rust:1.98-trixie AS backend
 WORKDIR /build
 
 ARG TARGETARCH
