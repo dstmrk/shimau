@@ -1,4 +1,5 @@
 import * as React from "react"
+import { LayersIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -43,7 +44,10 @@ export function LoginForm({
     <div className="flex min-h-svh items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>shimau</CardTitle>
+          <CardTitle className="flex items-center gap-2.5">
+            <LayersIcon className="size-5 shrink-0 text-primary" aria-hidden />
+            shimau
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit} className="flex flex-col gap-4">

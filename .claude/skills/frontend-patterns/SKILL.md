@@ -36,6 +36,23 @@ the theme in an app full of editors is a surprise, not a feature.
 Delete a generated component that nothing imports. Unused UI primitives are
 bundle weight and lint noise.
 
+## The mark
+
+lucide's `layers`, in the app's own `--primary`. It sits in the dashboard
+header and on the login card as a bare glyph with `text-primary`, like every
+other icon; the tile version is only for the favicon
+(`frontend/public/shimau.svg`) and the README logo.
+
+`layers` over the more obvious `container`: shimau manages *projects*, not
+individual containers, and an icon that says "one container" would contradict
+the first design principle. It also survives 16px in a browser tab, which
+`boxes` does not.
+
+The tile colour is `#0069a8` — the sRGB of `oklch(0.5 0.134 242.749)`, the
+`--primary` token in `frontend/src/index.css`. An SVG cannot read a CSS
+variable, so that hex is a copy; if the theme's primary ever changes, convert
+the new value rather than picking a blue that looks close.
+
 ## React 19 rules this codebase follows
 
 **Adjust state during render, not in an effect.** When a dialog's `stack` prop

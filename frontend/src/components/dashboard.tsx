@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { LogOutIcon, RefreshCwIcon } from "lucide-react"
+import { LayersIcon, LogOutIcon, RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { LogsDialog } from "@/components/logs-dialog"
@@ -78,11 +78,14 @@ export function Dashboard({
   return (
     <div className="mx-auto flex min-h-svh w-full max-w-3xl flex-col gap-6 p-6">
       <header className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="font-medium">shimau</h1>
-          <p className="text-xs text-muted-foreground">
-            Signed in as {identity.username}
-          </p>
+        <div className="flex items-center gap-2.5">
+          <LayersIcon className="size-5 shrink-0 text-primary" aria-hidden />
+          <div>
+            <h1 className="font-medium">shimau</h1>
+            <p className="text-xs text-muted-foreground">
+              Signed in as {identity.username}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <Button

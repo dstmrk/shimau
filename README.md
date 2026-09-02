@@ -1,9 +1,11 @@
+<img src="docs/media/logo.png" alt="" width="60">
+
 # shimau
 
 **A tiny, modern Docker Compose manager.**
 
 [![CI](https://github.com/dstmrk/shimau/actions/workflows/ci.yml/badge.svg)](https://github.com/dstmrk/shimau/actions/workflows/ci.yml)
-[![Image](https://img.shields.io/badge/ghcr.io-dstmrk%2Fshimau-0284c7)](https://github.com/dstmrk/shimau/pkgs/container/shimau)
+[![Image](https://img.shields.io/badge/ghcr.io-dstmrk%2Fshimau-0069a8)](https://github.com/dstmrk/shimau/pkgs/container/shimau)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 shimau gives you a web UI for the Compose projects already sitting on your
@@ -174,6 +176,10 @@ the CLI but not a running daemon. Without the CLI they skip themselves.
 it next.
 
 ## Why it exists
+
+The name is しまう — Japanese for putting something away, stowing it where it
+belongs. That is the job: your Compose projects, tidy and reachable, owned by
+the filesystem rather than by shimau.
 
 Dockge had the right core idea: a file-based, Compose-focused UI that does not
 try to replace the whole Docker administration ecosystem. shimau keeps that
