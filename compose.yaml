@@ -1,0 +1,47 @@
+# shimau's own Compose project.
+#
+# Keep this directory OUTSIDE the stacks directory it manages, so shimau never
+# discovers and acts on itself (spec §9).
+#
+#   /home/user/
+#   ├── shimau/            ← this file
+#   │   ├── compose.yaml
+#   │   └── data/
+#   └── docker-apps/       ← SHIMAU_STACKS_DIR
+#       ├── octotracker/
+#       └── ...
+
+services:
+  shimau:
+    image: ghcr.io/dstmrk/shimau:latest
+    container_name: shimau
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # The managed stacks directory. This path must be IDENTICAL inside and
+      # outside the container — Compose files use relative bind mounts that the
+      # host daemon resolves against the host filesystem (spec §6.3).
+      SHIMAU_STACKS_DIR: /home/user/docker-apps
+
+      # First boot only: creates the administrator, then these are ignored.
+      # Remove them once the account exists.
+      SHIMAU_ADMIN_USERNAME: admin
+      SHIMAU_ADMIN_PASSWORD: ${SHIMAU_ADMIN_PASSWORD:?set SHIMAU_ADMIN_PASSWORD in .env}
+
+      # Set to false only when reaching shimau over plain HTTP: a browser drops
+      # a Secure cookie sent over http://, which shows up as a login that
+      # "succeeds" and immediately bounces back to the form.
+      SHIMAU_COOKIE_SECURE: "true"
+
+      # SHIMAU_SESSION_TTL_HOURS: "168"
+      # SHIMAU_LOG_TAIL: "200"
+      # SHIMAU_LOG: "info"
+    volumes:
+      # The host Docker daemon. shimau shells out to `docker compose`; it never
+      # runs a daemon of its own.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Same path on both sides — see SHIMAU_STACKS_DIR above.
+      - /home/user/docker-apps:/home/user/docker-apps
+      # shimau.db: the administrator account and its sessions, nothing else.
+      - ./data:/app/data

@@ -1,0 +1,294 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege by default; the publish job widens it for itself.
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  backend:
+    name: Backend (fmt, clippy, test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain
+        run: |
+          rustup component add clippy rustfmt
+          rustc --version && cargo --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: backend
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      # The runner ships the Docker CLI and the Compose plugin, so the tests
+      # that shell out to `docker compose config` run here for real instead of
+      # skipping themselves.
+      - name: Compose CLI available
+        run: docker compose version
+      - name: Test
+        run: cargo test --locked
+
+  frontend:
+    name: Frontend (lint, types, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci --prefer-offline --no-audit --no-fund
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+      - name: Type check
+        run: npm run typecheck
+      - name: Test
+        run: npm run test:coverage
+      - name: Build
+        run: npm run build
+
+  hook-tests:
+    name: Claude hooks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Defence in depth for the rules in CLAUDE.md: a regex that stops
+      # blocking a push to main, or an unpinned action slipping through, has
+      # to turn CI red rather than fail open.
+      - name: Run hook suites
+        run: |
+          bash .claude/hooks/test-block-push-to-main.sh
+          bash .claude/hooks/test-block-commit-on-main.sh
+          bash .claude/hooks/test-block-unpinned-actions.sh
+
+  docs-check:
+    name: Docs references
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Check paths and skills cited in the docs still exist
+        run: node scripts/check-docs.mjs
+
+  actionlint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download actionlint
+        id: actionlint
+        run: bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+      - name: Run actionlint
+        run: ${{ steps.actionlint.outputs.executable }} -color
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+  image:
+    name: Image (build, smoke, scan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [backend, frontend]
+    env:
+      # trivy-action still pins actions/cache@v4 (node20) internally.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      # Single-architecture here on purpose: this job exists to prove the
+      # Dockerfile builds and the container actually starts. The multi-arch
+      # build happens once, in `publish`, reusing this layer cache.
+      - name: Build amd64 image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: shimau:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+
+      - name: Smoke test — start the container
+        run: |
+          mkdir -p /tmp/shimau-stacks/demo /tmp/shimau-data
+          printf 'services:\n  web:\n    image: nginx:alpine\n' \
+            > /tmp/shimau-stacks/demo/compose.yaml
+          docker run -d --name shimau-smoke \
+            -p 8080:8080 \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /tmp/shimau-stacks:/tmp/shimau-stacks \
+            -v /tmp/shimau-data:/app/data \
+            -e SHIMAU_STACKS_DIR=/tmp/shimau-stacks \
+            -e SHIMAU_ADMIN_PASSWORD=ci-smoke-password \
+            -e SHIMAU_COOKIE_SECURE=false \
+            shimau:ci
+
+      - name: Smoke test — health, bundled Compose, auth gate, listing
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 40); do
+            state="$(docker inspect --format='{{.State.Status}}' shimau-smoke 2>/dev/null || true)"
+            if [ "$state" = "exited" ] || [ "$state" = "dead" ]; then
+              docker logs shimau-smoke
+              echo "::error::the container exited during startup"
+              exit 1
+            fi
+            if curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+            if [ "$attempt" -eq 40 ]; then
+              docker logs shimau-smoke
+              echo "::error::the container never became healthy"
+              exit 1
+            fi
+          done
+
+          # The image has to carry a working Compose plugin: without it every
+          # action in the UI is dead on arrival.
+          docker exec shimau-smoke docker compose version
+
+          # Authentication is mandatory (spec §14.13).
+          code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/stacks)"
+          [ "$code" = "401" ] || { echo "::error::/api/stacks answered $code, expected 401"; exit 1; }
+
+          curl -fsS -c /tmp/jar -X POST \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"admin","password":"ci-smoke-password"}' \
+            http://127.0.0.1:8080/api/auth/login > /dev/null
+
+          curl -fsS -b /tmp/jar http://127.0.0.1:8080/api/stacks | tee /tmp/stacks.json
+          grep -q '"name":"demo"' /tmp/stacks.json \
+            || { echo "::error::the demo stack was not discovered"; exit 1; }
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs shimau-smoke || true
+
+      - name: Stop the container
+        if: always()
+        run: docker rm -f shimau-smoke || true
+
+      - name: Trivy — image scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: shimau:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+  publish:
+    name: Publish to GHCR
+    # Never on a pull request: a fork's token cannot write packages, and an
+    # unmerged branch has no business producing `:latest`.
+    if: github.event_name == 'push'
+    needs: [backend, frontend, hook-tests, docs-check, actionlint, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The Rust and npm builds cross-compile on the build platform, but the
+      # runtime stage installs the Docker CLI with apt, which has to run as
+      # arm64 binaries. QEMU covers that one stage.
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short,prefix=main-,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (amd64 + arm64)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### Published"
+            echo
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
