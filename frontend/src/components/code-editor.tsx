@@ -35,6 +35,10 @@ export function CodeEditor({
   readOnly?: boolean
   onOpenSearch?: (open: () => void) => void
 }) {
+  // Grows with the file instead of reserving a fixed block: a three-line
+  // `.env` in a 24rem editor is mostly empty space, and a long Compose file
+  // still gets a scroll area rather than a page that scrolls under the
+  // dialog.
   const { theme } = useTheme()
   const ref = React.useRef<ReactCodeMirrorRef>(null)
 
@@ -53,7 +57,8 @@ export function CodeEditor({
       value={value}
       onChange={onChange}
       readOnly={readOnly}
-      height="24rem"
+      minHeight="12rem"
+      maxHeight="60vh"
       theme={resolvedTheme(theme) === "dark" ? oneDark : "light"}
       extensions={language === "yaml" ? [yaml()] : []}
       basicSetup={{

@@ -10,6 +10,8 @@ shimau gives you a web UI for the Compose projects already sitting on your
 server. Start, stop, restart and update them, follow their logs, edit their
 `compose.yaml` and `.env` — and nothing else.
 
+![The shimau dashboard: four stacks, each with its status and its actions](docs/media/dashboard.png)
+
 Your Compose files stay where they are and stay in charge. shimau reads the
 directory, shells out to `docker compose`, and keeps no copy of anything. Its
 own database holds one administrator account and its sessions; delete it and
@@ -31,6 +33,10 @@ you lose a password, not a deployment.
   only saved if `docker compose config` accepts it — the previous version is
   kept as `<name>.bak`. `.env` opens with its values hidden and read-only until
   you reveal them.
+
+| Compose editor | `.env` editor |
+| --- | --- |
+| ![The Compose editor, with YAML highlighting and the filename preserved](docs/media/compose-editor.png) | ![The .env editor with every value masked](docs/media/env-editor.png) |
 
 ## What it will not do
 
