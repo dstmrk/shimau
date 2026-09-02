@@ -90,6 +90,23 @@ describe("StackCard", () => {
     expect(screen.getByText(/Several Compose files/)).toBeInTheDocument()
   })
 
+  it("gives Stop the destructive emphasis and nothing else on the card", () => {
+    renderCard(stack({ status: "running", has_env_file: true }))
+    const stop = screen.getByRole("button", { name: "Stop" })
+    expect(stop.classList.contains("text-destructive-emphasis")).toBe(true)
+    for (const name of ["Update", "Restart", "Logs", "Compose", ".env"]) {
+      const other = screen.getByRole("button", { name })
+      expect(other.classList.contains("text-destructive-emphasis")).toBe(false)
+    }
+  })
+
+  it("keeps Start on the primary emphasis rather than a colour of its own", () => {
+    renderCard(stack({ status: "stopped" }))
+    const start = screen.getByRole("button", { name: "Start" })
+    expect(start.classList.contains("bg-primary")).toBe(true)
+    expect(start.classList.contains("text-destructive-emphasis")).toBe(false)
+  })
+
   it("shows which compose file the stack uses", () => {
     renderCard(stack({ compose_file: "docker-compose.yml" }))
     expect(screen.getByText("docker-compose.yml")).toBeInTheDocument()

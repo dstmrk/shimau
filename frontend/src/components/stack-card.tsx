@@ -17,6 +17,11 @@ import type { Stack, StackAction } from "@/lib/types"
 /**
  * One stack, one row: every action it supports is reachable without drilling
  * into a detail page (spec §5.1).
+ *
+ * Emphasis carries the meaning, in four tiers: solid primary for the
+ * affirmative lifecycle action, a destructive tint for the one that takes
+ * services offline, outline for the actions that change something while the
+ * stack stays up, ghost for the ones that only open a view.
  */
 export function StackCard({
   stack,
@@ -63,7 +68,7 @@ export function StackCard({
           <div className="flex flex-wrap gap-1.5">
             {isUp ? (
               <Button
-                variant="secondary"
+                variant="destructive"
                 disabled={busy}
                 onClick={() => onAction("stop")}
               >

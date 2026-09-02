@@ -104,6 +104,7 @@ export function Dashboard({
           <Button
             variant="ghost"
             size="icon"
+            className="hover:text-destructive-emphasis"
             aria-label="Sign out"
             onClick={signOut}
           >
