@@ -5,6 +5,7 @@ import { openSearchPanel } from "@codemirror/search"
 import { oneDark } from "@codemirror/theme-one-dark"
 
 import { useTheme } from "@/components/theme-provider"
+import { dotenvHighlight, dotenvLanguage } from "@/lib/dotenv-highlight"
 
 function resolvedTheme(theme: string) {
   if (theme === "system") {
@@ -60,7 +61,9 @@ export function CodeEditor({
       minHeight="12rem"
       maxHeight="60vh"
       theme={resolvedTheme(theme) === "dark" ? oneDark : "light"}
-      extensions={language === "yaml" ? [yaml()] : []}
+      extensions={
+        language === "yaml" ? [yaml()] : [dotenvLanguage, dotenvHighlight]
+      }
       basicSetup={{
         lineNumbers: true,
         highlightActiveLine: !readOnly,
