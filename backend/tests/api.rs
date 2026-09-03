@@ -127,6 +127,15 @@ async fn login(router: &Router) -> String {
         .to_string()
 }
 
+/// One directive out of a policy, by name. `script-src-elem` must not answer
+/// for `script-src`, so the name is matched whole.
+fn directive<'a>(policy: &'a str, name: &str) -> Option<&'a str> {
+    policy.split(';').map(str::trim).find_map(|entry| {
+        let (key, value) = entry.split_once(' ')?;
+        (key == name).then(|| value.trim())
+    })
+}
+
 fn json(bytes: &[u8]) -> serde_json::Value {
     serde_json::from_slice(bytes).expect("response should be JSON")
 }
@@ -611,4 +620,44 @@ async fn a_throttled_login_carries_a_retry_after_header() {
         .parse()
         .expect("Retry-After is a number of seconds");
     assert!(seconds > 0);
+}
+
+#[tokio::test]
+async fn every_response_carries_the_content_security_policy() {
+    let harness = harness().await;
+
+    let (status, headers) = send_for_headers(
+        &harness.router,
+        request("GET", "/api/health").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let policy = headers
+        .get(header::CONTENT_SECURITY_POLICY)
+        .expect("every response carries a policy")
+        .to_str()
+        .unwrap();
+
+    // The directive worth defending. `'unsafe-inline'` is granted to styles
+    // and to nothing else; `'unsafe-eval'` to nothing at all.
+    assert_eq!(directive(policy, "script-src"), Some("'self'"));
+    assert!(!policy.contains("unsafe-eval"), "{policy}");
+    assert_eq!(directive(policy, "default-src"), Some("'self'"));
+    assert_eq!(directive(policy, "object-src"), Some("'none'"));
+    assert_eq!(directive(policy, "base-uri"), Some("'none'"));
+    assert_eq!(directive(policy, "frame-ancestors"), Some("'none'"));
+    assert_eq!(
+        directive(policy, "style-src"),
+        Some("'self' 'unsafe-inline'")
+    );
+
+    // The policy is applied outside the /api nest, because the document it
+    // governs is served by the static side of the router.
+    let (_, headers) = send_for_headers(
+        &harness.router,
+        request("GET", "/index.html").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert!(headers.contains_key(header::CONTENT_SECURITY_POLICY));
 }

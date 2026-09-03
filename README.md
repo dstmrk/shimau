@@ -171,7 +171,12 @@ Treat it as one.
   environment — otherwise a Compose file could interpolate `${SHIMAU_ADMIN_PASSWORD}`
   and read it back.
 - **`.env` content is never logged**, and `.env` and its backup are written
-  `0600`.
+  `0600`. API responses carry `Cache-Control: no-store`, so no proxy or browser
+  cache keeps a copy.
+- **Every response carries a Content-Security-Policy** with `script-src
+  'self'`: no CDN, no inline script, no `eval`. If you put shimau behind a
+  proxy that injects its own policy, the stricter of the two wins — a proxy
+  policy without `'unsafe-inline'` on `style-src` will break the editors.
 
 Putting shimau behind Cloudflare Access, Tailscale or a VPN is a good idea. It
 is a layer on top of shimau's own authentication, not a replacement for it.
