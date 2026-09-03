@@ -58,7 +58,7 @@ export function ConsoleOutput({
         ref={viewport}
         onScroll={handleScroll}
         className={cn(
-          "h-80 overflow-auto rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed",
+          "h-80 overflow-auto rounded-md border bg-muted/15 p-3 font-mono text-xs leading-relaxed",
           className
         )}
       >

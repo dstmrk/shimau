@@ -59,6 +59,12 @@ const CHECKS = [
     min: 4.5,
   },
   {
+    what: "Stderr line in the console/log pane (ConsoleOutput's bg-muted/15 over the dialog)",
+    fg: "muted-foreground",
+    bg: tint("muted", 0.15, "popover"),
+    min: 4.5,
+  },
+  {
     what: "Focus indicator (focus-visible:border-ring) against the page",
     fg: "ring",
     bg: "background",
