@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { LayersIcon, LogOutIcon, RefreshCwIcon } from "lucide-react"
+import { LayersIcon, LogOutIcon, RefreshCwIcon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { LogsDialog } from "@/components/logs-dialog"
@@ -12,6 +12,7 @@ import { StackCard } from "@/components/stack-card"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { STACKS_QUERY_KEY, useStackAction, useStacks } from "@/hooks/use-stacks"
 import { ApiError, api } from "@/lib/api"
@@ -40,6 +41,7 @@ export function Dashboard({
   const stacks = useStacks()
   const runAction = useStackAction()
 
+  const [query, setQuery] = React.useState("")
   const [operation, setOperation] = React.useState<ActiveOperation | null>(null)
   const [logsFor, setLogsFor] = React.useState<string | null>(null)
   const [composeFor, setComposeFor] = React.useState<string | null>(null)
@@ -91,8 +93,12 @@ export function Dashboard({
       .map((stack) => stack.name)
   )
 
+  const visibleStacks = (stacks.data ?? []).filter((stack) =>
+    stack.name.toLowerCase().includes(query.trim().toLowerCase())
+  )
+
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-3xl flex-col gap-6 p-6">
+    <div className="mx-auto flex min-h-svh w-full max-w-6xl flex-col gap-6 p-6">
       <header className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
           <LayersIcon className="size-5 shrink-0 text-primary" aria-hidden />
@@ -165,28 +171,54 @@ export function Dashboard({
           </Alert>
         )}
 
-        {stacks.data?.map((stack) => (
-          <StackCard
-            key={stack.name}
-            stack={stack}
-            busy={busyStacks.has(stack.name)}
-            onAction={(action) => start(stack.name, action)}
-            onShowOperation={() => {
-              if (stack.active_operation_id) {
-                void showOperation(stack.active_operation_id)
-              }
-            }}
-            onLogs={() => setLogsFor(stack.name)}
-            onCompose={() => {
-              setComposeLoaded(true)
-              setComposeFor(stack.name)
-            }}
-            onEnv={() => {
-              setEnvLoaded(true)
-              setEnvFor(stack.name)
-            }}
-          />
-        ))}
+        {stacks.data && stacks.data.length > 0 && (
+          <div className="relative">
+            <SearchIcon
+              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              type="search"
+              placeholder="Search stacks"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="pl-9"
+            />
+          </div>
+        )}
+
+        {stacks.data &&
+          stacks.data.length > 0 &&
+          visibleStacks.length === 0 && (
+            <Alert>
+              <AlertTitle>No stacks match &ldquo;{query}&rdquo;</AlertTitle>
+            </Alert>
+          )}
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {visibleStacks.map((stack) => (
+            <StackCard
+              key={stack.name}
+              stack={stack}
+              busy={busyStacks.has(stack.name)}
+              onAction={(action) => start(stack.name, action)}
+              onShowOperation={() => {
+                if (stack.active_operation_id) {
+                  void showOperation(stack.active_operation_id)
+                }
+              }}
+              onLogs={() => setLogsFor(stack.name)}
+              onCompose={() => {
+                setComposeLoaded(true)
+                setComposeFor(stack.name)
+              }}
+              onEnv={() => {
+                setEnvLoaded(true)
+                setEnvFor(stack.name)
+              }}
+            />
+          ))}
+        </div>
       </main>
 
       <OperationConsole
