@@ -80,7 +80,7 @@ docker compose logs -f shimau
 Four lines say it came up:
 
 ```text
-starting shimau version="0.2.0" stacks_dir=/home/you/docker-apps
+starting shimau version="0.3.0" stacks_dir=/home/you/docker-apps
 docker compose available version=5.5.0
 administrator account created username=admin
 listening address=0.0.0.0:8080
