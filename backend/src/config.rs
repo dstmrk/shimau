@@ -46,6 +46,9 @@ pub struct Config {
     pub session_ttl_hours: i64,
     /// Default number of log lines returned before following.
     pub log_tail: u32,
+    /// Commit the image was built from, set by the Dockerfile rather than by
+    /// an operator. `None` for a binary built outside the image.
+    pub build_sha: Option<String>,
 }
 
 impl Config {
@@ -89,6 +92,7 @@ impl Config {
             168,
         )?;
         let log_tail = parse_num::<u32>("SHIMAU_LOG_TAIL", get("SHIMAU_LOG_TAIL"), 200)?;
+        let build_sha = get("SHIMAU_BUILD_SHA").filter(|sha| !sha.is_empty());
 
         Ok(Self {
             stacks_dir,
@@ -100,6 +104,7 @@ impl Config {
             cookie_secure,
             session_ttl_hours,
             log_tail,
+            build_sha,
         })
     }
 
@@ -198,7 +203,28 @@ mod tests {
         assert!(cfg.cookie_secure);
         assert_eq!(cfg.session_ttl_hours, 168);
         assert_eq!(cfg.log_tail, 200);
+        assert!(cfg.build_sha.is_none());
         assert_eq!(cfg.database_path(), PathBuf::from("/app/data/shimau.db"));
+    }
+
+    #[test]
+    fn the_build_sha_is_read_when_the_image_supplies_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let with = Config::from_source(source(&[
+            ("SHIMAU_STACKS_DIR", dir.path().to_str().unwrap()),
+            ("SHIMAU_BUILD_SHA", "0badc0de"),
+        ]))
+        .unwrap();
+        assert_eq!(with.build_sha.as_deref(), Some("0badc0de"));
+
+        // An unset build arg reaches the process as an empty string, which is
+        // not a commit.
+        let without = Config::from_source(source(&[
+            ("SHIMAU_STACKS_DIR", dir.path().to_str().unwrap()),
+            ("SHIMAU_BUILD_SHA", ""),
+        ]))
+        .unwrap();
+        assert!(without.build_sha.is_none());
     }
 
     #[test]

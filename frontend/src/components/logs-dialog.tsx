@@ -48,6 +48,7 @@ export function LogsDialog({
 
   useEventStream(stack && following ? streams.logs(stack, TAIL) : null, {
     onLine: (line) => setLines((previous) => [...previous, line]),
+    onReconnecting: () => setLines([]),
     onFinished: () => setEnded(true),
     onError: () => setEnded(true),
   })

@@ -13,7 +13,8 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::ConnectInfo;
-use axum::http::{header, Request, StatusCode};
+use axum::http::{header, HeaderMap, Request, StatusCode};
+use axum::response::Response;
 use axum::Router;
 use http_body_util::BodyExt;
 use shimau::api::AppState;
@@ -81,11 +82,22 @@ fn request(method: &str, uri: &str) -> axum::http::request::Builder {
     Request::builder().method(method).uri(uri)
 }
 
-async fn send(router: &Router, mut request: Request<Body>) -> (StatusCode, Vec<u8>, Vec<String>) {
+async fn send_raw(router: &Router, mut request: Request<Body>) -> Response {
     request
         .extensions_mut()
         .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40000))));
-    let response = router.clone().oneshot(request).await.unwrap();
+    router.clone().oneshot(request).await.unwrap()
+}
+
+/// Status and headers, for the assertions that are about the envelope rather
+/// than the body.
+async fn send_for_headers(router: &Router, request: Request<Body>) -> (StatusCode, HeaderMap) {
+    let response = send_raw(router, request).await;
+    (response.status(), response.headers().clone())
+}
+
+async fn send(router: &Router, request: Request<Body>) -> (StatusCode, Vec<u8>, Vec<String>) {
+    let response = send_raw(router, request).await;
     let status = response.status();
     let cookies = response
         .headers()
@@ -537,4 +549,66 @@ async fn a_compose_file_cannot_be_written_through_a_symlink() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn api_responses_are_never_cached() {
+    let harness = harness().await;
+    let cookie = login(&harness.router).await;
+
+    // The `.env` body is the one that matters: it is a secret answered over a
+    // plain GET, and a shared cache holding on to it is a leak.
+    for uri in [
+        "/api/auth/me",
+        "/api/stacks",
+        "/api/stacks/octotracker/env",
+        "/api/stacks/octotracker/compose",
+    ] {
+        let (status, headers) = send_for_headers(
+            &harness.router,
+            request("GET", uri)
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{uri}");
+        assert_eq!(
+            headers.get(header::CACHE_CONTROL).unwrap(),
+            "no-store",
+            "{uri} may not be cached"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_throttled_login_carries_a_retry_after_header() {
+    let harness = harness().await;
+    let body = serde_json::json!({ "username": "admin", "password": "wrong-password" });
+
+    let mut throttled = None;
+    for _ in 0..8 {
+        let (status, headers) = send_for_headers(
+            &harness.router,
+            request("POST", "/api/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await;
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            throttled = Some(headers);
+            break;
+        }
+    }
+
+    let headers = throttled.expect("repeated failures must eventually throttle");
+    let seconds: u64 = headers
+        .get(header::RETRY_AFTER)
+        .expect("a 429 must say when to come back")
+        .to_str()
+        .unwrap()
+        .parse()
+        .expect("Retry-After is a number of seconds");
+    assert!(seconds > 0);
 }

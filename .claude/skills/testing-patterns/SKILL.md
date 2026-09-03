@@ -53,7 +53,14 @@ There is no test that needs a running daemon. If you add one, it belongs
 behind a disposable Compose project under `#[ignore]`, never against whatever
 stacks the developer happens to have.
 
-## Time-dependent tests never sleep
+## Time-dependent tests never sleep — with one exception
+
+`compose::run_with_timeout` promises that an overrunning child is *killed*, and
+a process being dead is only observable by looking a moment later. The test
+gives a child a 200ms budget and has it touch a marker file after a second,
+then checks the marker never appears: a 5x margin in both directions, which a
+loaded runner does not close. Everything else that depends on time takes an
+injected instant instead:
 
 `LoginLimiter` has `retry_after_at` / `record_failure_at` taking an `Instant`,
 so the backoff and the TTL are tested by passing a later instant. A test that
@@ -73,6 +80,13 @@ stack offers no actions) rather than the markup.
 `fetch` is stubbed with `vi.stubGlobal` and `vi.fn<typeof fetch>()` — the type
 parameter is what makes `mock.calls[0][0]` typed, and the build type-checks
 tests too.
+
+**jsdom implements no `EventSource`**, so `use-event-stream.test.tsx` brings
+its own: a class that records its listeners, with `emit` to push an event and
+`fail(readyState)` to drive the retry-versus-give-up branch, both wrapping the
+dispatch in `act`. That fake is why the hook is tested at all; the dialogs
+around it still are not. Reach for it rather than writing another test that
+works around the stream.
 
 **Do not try to type into CodeMirror under jsdom.** It calls
 `getClientRects()` during measurement, which jsdom does not implement, and the

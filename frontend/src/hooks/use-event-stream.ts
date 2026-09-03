@@ -6,6 +6,8 @@ export interface StreamHandlers {
   onLine: (line: OutputLine) => void
   onFinished?: (payload: unknown) => void
   onLagged?: (skipped: number) => void
+  /** The browser lost the connection and is retrying. */
+  onReconnecting?: () => void
   onError?: () => void
 }
 
@@ -68,7 +70,13 @@ export function useEventStream(url: string | null, handlers: StreamHandlers) {
       // will not retry; anything else is a reconnect in progress.
       if (source.readyState === EventSource.CLOSED) {
         ref.current.onError?.()
+        return
       }
+      // A retry is answered by a *new* subscription, and both streams answer
+      // one by replaying what they have — the operation's buffer, or the log
+      // tail. Everything on screen is about to arrive a second time, so the
+      // caller is told to drop it rather than show the run twice.
+      ref.current.onReconnecting?.()
     }
 
     return () => source.close()

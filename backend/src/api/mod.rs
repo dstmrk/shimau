@@ -101,6 +101,16 @@ fn api_router(state: AppState) -> Router {
         // small text file.
         .layer(DefaultBodyLimit::max(MAX_EDITABLE_BYTES + 4096))
         .fallback(unknown_endpoint)
+        // `.env` content is the answer to a plain GET, and a stack listing is
+        // stale the moment it is written. Nothing under /api is worth keeping:
+        // no-store takes the browser cache, a shared proxy and the
+        // back/forward cache out of the picture at once. The static assets are
+        // deliberately outside this layer — they are content-hashed and want
+        // caching.
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        ))
 }
 
 /// Unauthenticated liveness probe, used by the container HEALTHCHECK.

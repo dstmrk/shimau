@@ -18,17 +18,19 @@ function stack(overrides: Partial<Stack> = {}): Stack {
 
 function renderCard(value: Stack, busy = false) {
   const onAction = vi.fn()
+  const onShowOperation = vi.fn()
   render(
     <StackCard
       stack={value}
       busy={busy}
       onAction={onAction}
+      onShowOperation={onShowOperation}
       onLogs={vi.fn()}
       onCompose={vi.fn()}
       onEnv={vi.fn()}
     />
   )
-  return { onAction }
+  return { onAction, onShowOperation }
 }
 
 describe("StackCard", () => {
@@ -70,6 +72,19 @@ describe("StackCard", () => {
     expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Update" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Restart" })).toBeDisabled()
+  })
+
+  it("offers the running operation's output while the card is busy", async () => {
+    const { onShowOperation } = renderCard(stack({ status: "running" }), true)
+    const button = screen.getByRole("button", { name: "Show output" })
+    expect(button).toBeEnabled()
+    await userEvent.click(button)
+    expect(onShowOperation).toHaveBeenCalled()
+  })
+
+  it("offers no output button when nothing is running", () => {
+    renderCard(stack({ status: "running" }))
+    expect(screen.queryByRole("button", { name: "Show output" })).toBeNull()
   })
 
   it("cannot restart a stack that is not up", () => {

@@ -107,7 +107,10 @@ Error body:
 
 `code` is stable and machine-readable, `message` is for a human, `details`
 carries command output when there is any, and `retry_after_secs` appears on a
-throttled login.
+throttled login — which also carries it as a `Retry-After` header.
+
+Every response under `/api` carries `Cache-Control: no-store`. The static
+assets do not: they are content-hashed and want caching.
 
 ## Two request paths worth knowing
 
@@ -137,3 +140,6 @@ the response is a 422 carrying the validator's own output.
 - **No stack state.** There is no table, cache or field anywhere holding a
   stack's status, its Compose content, or its `.env`. Every read goes to the
   filesystem or to Docker.
+- **Command budget.** A Compose command that has to answer a request runs
+  through `compose::run_with_timeout` and is killed when it overruns; the two
+  streaming paths are exempt and end with their client.

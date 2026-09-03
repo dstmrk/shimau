@@ -49,7 +49,7 @@ Four tiers, and a stack card uses all four (`stack-card.tsx`):
 | Solid primary | the affirmative lifecycle action | `default` | Start |
 | Destructive tint | takes services offline | `destructive` | Stop |
 | Outline | changes something, stack stays up | `outline` | Update, Restart |
-| Ghost | only opens a view | `ghost` | Logs, Compose, `.env` |
+| Ghost | only opens a view | `ghost` | Logs, Compose, `.env`, Show output |
 
 Colour is spent, not sprinkled. Two things it is deliberately **not** spent on:
 
@@ -62,6 +62,23 @@ pairing the hue that means running with the state that is not.
 **Update and Restart are not coloured.** Colour on every lifecycle action is
 the Portainer/Dockge look: on fifteen rows it is sixty coloured chips, and the
 status dots stop being the thing the eye finds.
+
+## `npm run typecheck` is `tsc -b`, and it has to stay that way
+
+`tsconfig.json` is a solution file: `"files": []` and two project references.
+`tsc --noEmit` against it therefore compiles **nothing** and exits 0 whatever
+the code says — the script read that way for a while, and the CI step named
+"Type check" was proving nothing. Only `-b` walks the references; both projects
+already set `noEmit`, so build mode never writes anything either.
+
+The tell was `npm run build` failing on an error `npm run typecheck` had just
+passed: `tsc -b && vite build` was the only thing checking types. If you touch
+the scripts, check the gate can still fail — write a deliberate type error and
+watch it turn red.
+
+Under `erasableSyntaxOnly`, which both projects set, TypeScript-only runtime
+syntax is out: no constructor parameter properties, no `enum`, no namespaces.
+Fields get declared and assigned.
 
 ## Contrast is a gate, not a habit
 

@@ -66,6 +66,24 @@ cwd drift would silently relocate every relative volume.
 stream and the log viewer both consume lines, and TTY progress redraws would
 arrive as control-character soup.
 
+## Every command that answers a request has a budget
+
+`compose::run_with_timeout` is the only way to run a Compose command to
+completion, and the budget is a parameter, not an option — a call site cannot
+forget it. It spawns with `kill_on_drop(true)`, and that is the load-bearing
+half: `Command::output()` leaves the process running when the future is
+dropped, so a wedged daemon used to leave one `docker compose ps` behind per
+listing poll, forever, on every stack. The timeout would have been a lie
+without it.
+
+The two streaming paths — an action's output and `logs --follow` — take no
+budget by design: they are long-running, and `spawn_lines` already kills the
+child when the client goes away.
+
+A timeout reaches the browser as a `compose_failed` naming the wait, because
+"Docker is not answering" is something the user can act on; a spawn failure
+stays server-side, since its message names filesystem paths.
+
 ## Parsing `docker compose ps`
 
 `backend/src/compose/status.rs` accepts **both** shapes Compose has shipped: a

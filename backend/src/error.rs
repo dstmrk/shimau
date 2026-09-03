@@ -4,7 +4,7 @@
 //! failed" is useless when the underlying cause is `docker compose pull`
 //! exiting 1 (spec §11).
 
-use axum::http::StatusCode;
+use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
@@ -98,7 +98,15 @@ impl IntoResponse for ApiError {
             details,
             retry_after_secs,
         };
-        (status, Json(body)).into_response()
+        let mut response = (status, Json(body)).into_response();
+        // A 429 says how long to wait in the body for the UI, and in the
+        // header for everything else that speaks HTTP.
+        if let Some(seconds) = retry_after_secs {
+            if let Ok(value) = HeaderValue::try_from(seconds.to_string()) {
+                response.headers_mut().insert(header::RETRY_AFTER, value);
+            }
+        }
+        response
     }
 }
 

@@ -82,5 +82,15 @@ nobody can log into is worse than a clear failure.
 ## Failure responses
 
 A wrong username and a wrong password take the same path and produce the same
-401. The username is checked with the same `credentials_ok` expression that
-verifies the password, so nothing about which one was wrong reaches the client.
+401, and `credentials_ok` in `backend/src/api/auth.rs` is where that holds.
+
+**The password is verified even when the username does not match**, and the two
+answers are combined with `&`, not `&&`. Short-circuiting on the username was
+the original shape and it was a username oracle: the wrong name returned in
+microseconds, the right one after Argon2id had run for tens of milliseconds.
+Identical bodies, different clocks — and knowing the administrator's name is
+half of a brute force, on an account whose throttle is keyed by that very name.
+
+The property is tested without a stopwatch: give the account a stored hash that
+cannot be parsed and send a wrong username. `verify` returns an error, which is
+only reachable if it ran at all — a short-circuit would answer `Ok(false)`.

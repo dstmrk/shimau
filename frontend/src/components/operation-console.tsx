@@ -74,6 +74,7 @@ export function OperationConsole({
           text: `… ${skipped} lines dropped (output arrived faster than the browser read it)`,
         },
       ]),
+    onReconnecting: () => setLines([]),
     onFinished: (payload) => {
       const status = (payload as { status?: OperationSnapshot["status"] })
         ?.status
@@ -126,7 +127,7 @@ export function OperationConsole({
           </DialogTitle>
           <DialogDescription>
             {running
-              ? "Live output from Docker Compose."
+              ? "Live output from Docker Compose. Closing leaves it running."
               : outcome === "succeeded"
                 ? "Completed."
                 : "Failed. The output below is the whole run."}
@@ -140,12 +141,12 @@ export function OperationConsole({
         />
 
         <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={running}
-          >
-            {running ? "Running…" : "Close"}
+          {/* Closing never cancels: the operation runs on the server and the
+              card keeps a way back to this transcript. Refusing to close was
+              worse than useless — a `pull` from an unreachable registry held
+              the whole UI behind a modal, and Escape closed it anyway. */}
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
           </Button>
         </DialogFooter>
       </DialogContent>
