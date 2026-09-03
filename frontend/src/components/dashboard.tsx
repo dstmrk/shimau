@@ -58,6 +58,22 @@ export function Dashboard({
     }
   }
 
+  // Re-attaching to something already in flight: the id comes from the stack
+  // listing, the action and the stack name from the operation itself, so no
+  // extra field has to travel on every summary just to label a dialog.
+  async function showOperation(id: string) {
+    try {
+      const snapshot = await api.operation(id)
+      setOperation({
+        id,
+        stack: snapshot.stack,
+        action: snapshot.action,
+      })
+    } catch {
+      toast.error("That operation is no longer available")
+    }
+  }
+
   async function signOut() {
     try {
       await api.logout()
@@ -155,6 +171,11 @@ export function Dashboard({
             stack={stack}
             busy={busyStacks.has(stack.name)}
             onAction={(action) => start(stack.name, action)}
+            onShowOperation={() => {
+              if (stack.active_operation_id) {
+                void showOperation(stack.active_operation_id)
+              }
+            }}
             onLogs={() => setLogsFor(stack.name)}
             onCompose={() => {
               setComposeLoaded(true)

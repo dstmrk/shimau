@@ -27,6 +27,14 @@ the arm64 build fails on an exact-version pin. The suite in that URL has to
 match the Dockerfile's base, and the package version string carries it
 (`…-1~debian.13~trixie`), so a base bump and a version bump are the same edit.
 
+## The image says which commit it is
+
+CI passes `BUILD_SHA` as a build argument; the Dockerfile turns it into
+`SHIMAU_BUILD_SHA`, and `Config` reads it so the startup line carries
+`commit=…`. It is the only variable in `config.rs` an operator never sets, and
+the only way to tell two `:latest` pulls apart in a support thread. A binary
+built outside the image logs `commit=unknown`, which is the honest answer.
+
 ## Two versions that must not drift apart
 
 **The Node major in the Dockerfile and in `.github/workflows/ci.yml` are the

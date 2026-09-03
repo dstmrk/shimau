@@ -37,6 +37,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(Config::from_env()?);
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
+        commit = config.build_sha.as_deref().unwrap_or("unknown"),
         stacks_dir = %config.stacks_dir.display(),
         data_dir = %config.data_dir.display(),
         "starting shimau"

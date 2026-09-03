@@ -21,6 +21,22 @@ Three named events, all with a JSON payload:
 The browser closes the `EventSource` on `finished`. Without that, EventSource
 reconnects on its own and replays the entire transcript from the top.
 
+## A retry means a replay
+
+Both streams answer a new subscription by replaying what they have — the
+operation's buffer, or `logs --tail`. So when `EventSource` loses the
+connection and retries on its own, everything already on screen is about to
+arrive a second time. `useEventStream` distinguishes the two failure
+readyStates and calls `onReconnecting`, which both dialogs answer by dropping
+the lines they hold; `onError` stays for the terminal case, where the browser
+has given up. Appending to what was there showed the run twice, which reads as
+a Compose command that ran twice.
+
+The alternative is `Last-Event-ID`: number the lines, let the browser ask for
+the tail it missed. That buys a seamless resume at the cost of an index the
+ring buffer does not currently keep, and nothing here is worth the protocol
+surface — a re-render of at most 2000 lines is cheap.
+
 ## Replay then follow, under one lock
 
 `Operation::subscribe()` returns the buffered snapshot *and* a live receiver
@@ -36,9 +52,19 @@ the whole run either way.
 
 `GET /api/stacks` carries `active_operation_id` for any stack with something
 in flight. The dashboard uses it for two things: disabling that stack's action
-buttons, and letting a fresh page re-attach to a run this browser never
-started. Operations are keyed per stack in the registry, so a second action on
-a busy stack is a 409, not a race.
+buttons, and offering **Show output**, which is how a fresh page re-attaches to
+a run this browser never started. Operations are keyed per stack in the
+registry, so a second action on a busy stack is a 409, not a race.
+
+The console's title needs the action and the stack name, and neither travels on
+the summary: `showOperation` fetches `GET /api/operations/{id}` for them. One
+request, on a click, instead of a field on every stack of every poll.
+
+For the same reason the console's Close button does not refuse to close while
+an operation runs. It used to, and a `pull` against an unreachable registry
+then held the entire UI behind a modal — with Escape closing it anyway, and no
+way back in. Closing has never cancelled anything: the operation runs on the
+server.
 
 ## Backpressure and bounds
 

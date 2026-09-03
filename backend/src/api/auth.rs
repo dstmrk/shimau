@@ -61,12 +61,9 @@ pub async fn login(
             ApiError::Internal("no administrator account exists; check the bootstrap".into())
         })?;
 
-    // The username check runs through the same failure path as a wrong
-    // password: the response must not distinguish the two.
-    let credentials_ok = user.username == body.username
-        && password::verify(&body.password, &user.password_hash).map_err(ApiError::internal)?;
+    let authenticated = credentials_ok(&user, &body).map_err(ApiError::internal)?;
 
-    if !credentials_ok {
+    if !authenticated {
         let failures = state.limiter.record_failure(&limiter_key);
         tracing::warn!(
             username = %body.username,
@@ -140,6 +137,24 @@ pub async fn require_session(
     Ok(next.run(request).await)
 }
 
+/// Checks a login attempt against the stored account.
+///
+/// The password is verified *even when the username does not match*, and the
+/// two answers are combined with a non-short-circuiting `&`. Written as
+/// `username == attempt && verify(...)`, a wrong username returns before
+/// Argon2id ever runs, and the microseconds that takes against the tens of
+/// milliseconds of a real verification tell an unauthenticated caller which
+/// username the administrator uses. The response bodies are identical; the
+/// clock was not.
+fn credentials_ok(
+    user: &AdminUser,
+    attempt: &LoginRequest,
+) -> Result<bool, password::PasswordError> {
+    let password_ok = password::verify(&attempt.password, &user.password_hash)?;
+    let username_ok = user.username == attempt.username;
+    Ok(username_ok & password_ok)
+}
+
 fn token_from_headers(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(header::COOKIE)
@@ -151,6 +166,39 @@ fn token_from_headers(headers: &HeaderMap) -> Option<&str> {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+
+    fn attempt(username: &str, password: &str) -> LoginRequest {
+        LoginRequest {
+            username: username.to_string(),
+            password: password.to_string(),
+        }
+    }
+
+    fn account(password_hash: &str) -> AdminUser {
+        AdminUser {
+            id: 1,
+            username: "admin".to_string(),
+            password_hash: password_hash.to_string(),
+        }
+    }
+
+    /// The timing property, asserted without a stopwatch: an unparseable
+    /// stored hash makes `verify` return an error, so seeing that error on an
+    /// attempt whose *username* is already wrong proves the verification ran.
+    /// A short-circuiting check would have returned `Ok(false)` untouched.
+    #[test]
+    fn the_password_is_verified_even_when_the_username_is_wrong() {
+        let user = account("not-a-phc-string");
+        assert!(credentials_ok(&user, &attempt("someone-else", "whatever")).is_err());
+    }
+
+    #[test]
+    fn only_the_right_pair_authenticates() {
+        let user = account(&password::hash("correct horse battery staple").unwrap());
+        assert!(credentials_ok(&user, &attempt("admin", "correct horse battery staple")).unwrap());
+        assert!(!credentials_ok(&user, &attempt("admin", "wrong")).unwrap());
+        assert!(!credentials_ok(&user, &attempt("root", "correct horse battery staple")).unwrap());
+    }
 
     #[test]
     fn the_token_is_read_from_the_cookie_header() {

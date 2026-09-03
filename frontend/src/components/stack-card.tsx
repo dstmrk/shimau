@@ -1,6 +1,7 @@
 import {
   FileTextIcon,
   KeyRoundIcon,
+  Loader2Icon,
   PlayIcon,
   RotateCwIcon,
   ScrollTextIcon,
@@ -27,6 +28,7 @@ export function StackCard({
   stack,
   busy,
   onAction,
+  onShowOperation,
   onLogs,
   onCompose,
   onEnv,
@@ -34,6 +36,7 @@ export function StackCard({
   stack: Stack
   busy: boolean
   onAction: (action: StackAction) => void
+  onShowOperation: () => void
   onLogs: () => void
   onCompose: () => void
   onEnv: () => void
@@ -101,6 +104,19 @@ export function StackCard({
               <RotateCwIcon data-icon="inline-start" />
               Restart
             </Button>
+            {busy && (
+              // The operation that disabled the buttons above may have been
+              // started by another tab, or before a reload. Without this the
+              // transcript the backend is still buffering has no way back into
+              // the UI, and the card is a row of dead buttons (spec §5.2).
+              <Button variant="ghost" onClick={onShowOperation}>
+                <Loader2Icon
+                  data-icon="inline-start"
+                  className="animate-spin"
+                />
+                Show output
+              </Button>
+            )}
             <Button variant="ghost" onClick={onLogs}>
               <ScrollTextIcon data-icon="inline-start" />
               Logs

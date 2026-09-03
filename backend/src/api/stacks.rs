@@ -20,9 +20,11 @@ use crate::stacks::paths::{self, PathError};
 
 use super::AppState;
 
-/// Ceiling on a single `docker compose ps`, so one wedged stack cannot hang
-/// the whole listing.
-const STATUS_TIMEOUT: Duration = Duration::from_secs(20);
+/// Ceiling on a Compose command that has to answer an HTTP request, so an
+/// unresponsive daemon cannot hang a listing, a save or a log read. Only the
+/// streaming paths — an action's output and `logs --follow` — are exempt: they
+/// are long-running by definition and end when the client goes away.
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Serialize)]
 pub struct StackSummary {
@@ -202,13 +204,12 @@ pub async fn write_compose(
         .ok_or_else(|| ApiError::internal("staged file has no name"))?
         .to_string();
 
-    let outcome = compose::run(compose::command(
-        &stack.path,
-        &staged_name,
-        &["config", "--quiet"],
-    ))
+    let outcome = compose::run_with_timeout(
+        compose::command(&stack.path, &staged_name, &["config", "--quiet"]),
+        COMMAND_TIMEOUT,
+    )
     .await
-    .map_err(|error| ApiError::internal(format!("could not run docker compose config: {error}")))?;
+    .map_err(|error| unanswered(error, format!("could not validate {compose_file}")))?;
 
     if !outcome.success() {
         // `staged` is dropped here, which removes the candidate. The file on
@@ -304,11 +305,12 @@ pub async fn logs(
     let owned = compose::logs_args(tail, false);
     let args: Vec<&str> = owned.iter().map(String::as_str).collect();
 
-    let outcome = compose::run(compose::command(&stack.path, &compose_file, &args))
-        .await
-        .map_err(|error| {
-            ApiError::internal(format!("could not run docker compose logs: {error}"))
-        })?;
+    let outcome = compose::run_with_timeout(
+        compose::command(&stack.path, &compose_file, &args),
+        COMMAND_TIMEOUT,
+    )
+    .await
+    .map_err(|error| unanswered(error, format!("could not read the logs of {}", stack.name)))?;
 
     if !outcome.success() {
         return Err(ApiError::ComposeFailed {
@@ -398,14 +400,10 @@ async fn service_statuses(stack_dir: &Path, compose_file: &str) -> Option<Vec<Se
         compose_file,
         &["ps", "--all", "--format", "json"],
     );
-    let outcome = match tokio::time::timeout(STATUS_TIMEOUT, compose::run(command)).await {
-        Ok(Ok(outcome)) => outcome,
-        Ok(Err(error)) => {
+    let outcome = match compose::run_with_timeout(command, COMMAND_TIMEOUT).await {
+        Ok(outcome) => outcome,
+        Err(error) => {
             tracing::warn!(%error, dir = %stack_dir.display(), "docker compose ps could not run");
-            return None;
-        }
-        Err(_) => {
-            tracing::warn!(dir = %stack_dir.display(), "docker compose ps timed out");
             return None;
         }
     };
@@ -445,6 +443,21 @@ fn require_unambiguous(stack: &DiscoveredStack) -> ApiResult<&str> {
 
 fn resolve_in_stack(stack_dir: &Path, filename: &str) -> ApiResult<PathBuf> {
     paths::resolve_file(stack_dir, filename).map_err(map_path_error)
+}
+
+/// A Compose command that never produced an outcome.
+///
+/// A timeout is Docker not answering, which is exactly the kind of cause spec
+/// §11 wants in front of the user. A spawn failure names filesystem paths, so
+/// it stays server-side behind the usual internal error.
+fn unanswered(error: compose::RunError, message: String) -> ApiError {
+    match error {
+        compose::RunError::TimedOut(_) => ApiError::ComposeFailed {
+            message,
+            details: error.to_string(),
+        },
+        compose::RunError::Spawn(_) => ApiError::internal(format!("{message}: {error}")),
+    }
 }
 
 fn map_path_error(error: PathError) -> ApiError {

@@ -8,6 +8,7 @@ pub mod status;
 
 use std::path::Path;
 use std::process::Stdio;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -127,6 +128,15 @@ pub fn logs_args(tail: u32, follow: bool) -> Vec<String> {
     args
 }
 
+/// Why a Compose invocation produced no outcome.
+#[derive(Debug, thiserror::Error)]
+pub enum RunError {
+    #[error("could not run docker compose: {0}")]
+    Spawn(#[from] std::io::Error),
+    #[error("docker compose did not answer within {0} seconds")]
+    TimedOut(u64),
+}
+
 /// Result of a Compose invocation that ran to completion.
 #[derive(Debug, Clone)]
 pub struct Outcome {
@@ -159,9 +169,26 @@ impl Outcome {
     }
 }
 
-/// Runs a Compose command to completion and captures its output.
-pub async fn run(mut cmd: Command) -> std::io::Result<Outcome> {
-    let output = cmd.output().await?;
+/// Runs a Compose command to completion and captures its output, giving up
+/// after `limit`.
+///
+/// Every command that has to answer an HTTP request goes through here, so the
+/// budget cannot be forgotten at a call site. The child is spawned with
+/// `kill_on_drop`, which is what makes the timeout mean something: dropping
+/// the future on a lapsed budget — or when the browser hangs up mid-request —
+/// kills the process instead of leaving one `docker compose ps` per poll
+/// behind an unresponsive daemon.
+pub async fn run_with_timeout(mut cmd: Command, limit: Duration) -> Result<Outcome, RunError> {
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    cmd.stdin(Stdio::null());
+    cmd.kill_on_drop(true);
+    let child = cmd.spawn()?;
+
+    let output = tokio::time::timeout(limit, child.wait_with_output())
+        .await
+        .map_err(|_| RunError::TimedOut(limit.as_secs()))??;
+
     Ok(Outcome {
         status_code: output.status.code(),
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -322,6 +349,43 @@ mod tests {
             );
         }
         assert!(!forwarded.iter().any(|k| k.starts_with("SHIMAU_")));
+    }
+
+    /// The one test in the suite that waits on wall-clock time: a process
+    /// dying is only observable by looking a moment later. The margins are
+    /// wide (a 200ms budget against a child that writes after a second) so a
+    /// loaded runner cannot turn it red.
+    #[tokio::test]
+    async fn a_command_that_outlives_its_budget_is_killed() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("survived");
+
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg(format!("sleep 1; : > {}", marker.display()));
+
+        let error = run_with_timeout(cmd, Duration::from_millis(200))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, RunError::TimedOut(_)), "got {error:?}");
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(
+            !marker.exists(),
+            "the child outlived the timeout and kept running"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_command_inside_its_budget_returns_its_output() {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg("printf hello; exit 3");
+        let outcome = run_with_timeout(cmd, Duration::from_secs(10))
+            .await
+            .unwrap();
+        assert_eq!(outcome.status_code, Some(3));
+        assert_eq!(outcome.stdout, "hello");
+        assert!(!outcome.success());
     }
 
     #[test]
