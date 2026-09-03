@@ -112,6 +112,10 @@ throttled login — which also carries it as a `Retry-After` header.
 Every response under `/api` carries `Cache-Control: no-store`. The static
 assets do not: they are content-hashed and want caching.
 
+Every response, `/api` and static alike, carries a Content-Security-Policy,
+`X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`. The policy
+is a single constant in `backend/src/api/mod.rs`.
+
 ## Two request paths worth knowing
 
 **An action.** `POST /api/stacks/{stack}/start` resolves the stack

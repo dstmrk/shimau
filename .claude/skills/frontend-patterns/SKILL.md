@@ -80,6 +80,32 @@ Under `erasableSyntaxOnly`, which both projects set, TypeScript-only runtime
 syntax is out: no constructor parameter properties, no `enum`, no namespaces.
 Fields get declared and assigned.
 
+## The page runs under a Content-Security-Policy
+
+`CONTENT_SECURITY_POLICY` in `backend/src/api/mod.rs` ships on every response,
+and `script-src 'self'` is the half worth keeping. What it forbids, in the
+order you are likely to trip over it:
+
+- **No third-party origin, for anything.** A Google Fonts `<link>`, an
+  analytics snippet, a CDN `<script>` — all refused, and refused *silently* as
+  far as the UI is concerned. Fonts are already self-hosted through the Geist
+  package and bundled into `/assets`; keep it that way.
+- **No inline `<script>` and no `eval`.** Vite emits neither today. A build
+  option that starts inlining the module-preload polyfill would, so a build
+  change is a policy change.
+- **`style-src` keeps `'unsafe-inline'`**, and has to: Radix positions floating
+  elements with inline `style` attributes and CodeMirror injects its theme as a
+  `<style>` element. Neither can be nonced from a static file server.
+- **`img-src` allows `data:`** for the SVG marks Tailwind inlines. A `blob:`
+  image — a generated download, say — would need the directive widened.
+
+Verified in Chromium against a running instance, not by reading the policy:
+login, both editors (typing and saving included), the `.env` reveal, both SSE
+streams, the theme toggle and a sign-out, watching `securitypolicyviolation`.
+Zero violations, and an injected inline script refused. If you change the
+policy or add a third-party asset, walk that path again — jsdom does not
+enforce CSP, so the Vitest suite will never tell you.
+
 ## Contrast is a gate, not a habit
 
 `scripts/check-contrast.mjs` reads the tokens out of `index.css`, composites

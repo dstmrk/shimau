@@ -26,6 +26,37 @@ use crate::db::Db;
 use crate::ops::OperationRegistry;
 use crate::stacks::files::MAX_EDITABLE_BYTES;
 
+/// The one policy, applied to every response.
+///
+/// The built frontend loads one module script and one stylesheet from the
+/// origin, and nothing else: no CDN, no inline `<script>`, no `eval`. That is
+/// what makes `script-src 'self'` affordable here, and it is the directive
+/// worth defending — an admin panel that drives Docker is the last place to
+/// leave a stored `.env` value one `dangerouslySetInnerHTML` away from
+/// running.
+///
+/// `style-src` is the one concession. Radix positions floating elements with
+/// inline `style` attributes and CodeMirror injects its theme as a `<style>`
+/// element at runtime; both need `'unsafe-inline'`, and neither can be nonced
+/// from here. Styles are a far smaller prize than scripts.
+///
+/// `data:` stays on `img-src` because Tailwind inlines a few SVG marks that
+/// way. There is deliberately no `upgrade-insecure-requests`: shimau supports
+/// plain-HTTP LAN installs, and upgrading their subresources would break every
+/// one of them.
+const CONTENT_SECURITY_POLICY: &str = concat!(
+    "default-src 'self'; ",
+    "script-src 'self'; ",
+    "style-src 'self' 'unsafe-inline'; ",
+    "img-src 'self' data:; ",
+    "font-src 'self'; ",
+    "connect-src 'self'; ",
+    "object-src 'none'; ",
+    "base-uri 'none'; ",
+    "form-action 'none'; ",
+    "frame-ancestors 'none'",
+);
+
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
@@ -47,9 +78,15 @@ pub fn router(state: AppState) -> Router {
         .nest("/api", api_router(state.clone()))
         .fallback_service(assets)
         .layer(SetResponseHeaderLayer::overriding(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),
         ))
+        // Superseded by `frame-ancestors` in every browser that reads a CSP,
+        // and kept for the ones that do not.
         .layer(SetResponseHeaderLayer::overriding(
             header::X_FRAME_OPTIONS,
             HeaderValue::from_static("DENY"),
