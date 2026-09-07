@@ -11,6 +11,7 @@ use axum::Json;
 use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
 
+use crate::compose::stats::{self, ContainerStats};
 use crate::compose::status::{self, ServiceStatus, StackStatus};
 use crate::compose::{self, Action};
 use crate::error::{ApiError, ApiResult};
@@ -25,6 +26,15 @@ use super::AppState;
 /// streaming paths — an action's output and `logs --follow` — are exempt: they
 /// are long-running by definition and end when the client goes away.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// How often the stats stream polls `docker compose stats`. Short enough to
+/// read as live, long enough that an open panel is not the busiest thing
+/// asking the daemon for anything.
+const STATS_POLL_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Budget for a single stats poll — tighter than [`COMMAND_TIMEOUT`] because a
+/// wedged poll blocks the next one and this stream has no other way to notice.
+const STATS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Serialize)]
 pub struct StackSummary {
@@ -367,6 +377,70 @@ pub async fn logs_stream(
     };
 
     Ok(Sse::new(events).keep_alive(KeepAlive::default()))
+}
+
+/// `GET /api/stacks/{stack}/stats/stream` — SSE.
+///
+/// A live view of `docker compose stats`, one `stats` event every
+/// [`STATS_POLL_INTERVAL`] carrying every running container's usage. Unlike
+/// the log stream this holds no long-lived child: each tick is an ordinary
+/// timed Compose command, and the loop itself ends the moment the browser
+/// disconnects — axum drops the stream, which drops this future.
+///
+/// A stack with nothing running is not an error here either: the poll comes
+/// back empty and the browser shows that, the same way a stopped stack's log
+/// stream just ends rather than failing (spec §4.4).
+pub async fn stats_stream(
+    State(state): State<AppState>,
+    AxumPath(name): AxumPath<String>,
+) -> ApiResult<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>> {
+    let stack = resolve_stack(&state, &name)?;
+    let compose_file = require_unambiguous(&stack)?.to_string();
+
+    let events = async_stream::stream! {
+        loop {
+            let containers = poll_stats(&stack.path, &compose_file).await;
+            if let Ok(event) = Event::default().event("stats").json_data(&containers) {
+                yield Ok(event);
+            }
+            tokio::time::sleep(STATS_POLL_INTERVAL).await;
+        }
+    };
+
+    Ok(Sse::new(events).keep_alive(KeepAlive::default()))
+}
+
+/// One `docker compose stats` poll. Any failure — a timeout, a spawn error, a
+/// non-zero exit, output that does not parse — is logged and answered as "no
+/// containers", the same distinction the log stream draws: a hiccup on one
+/// tick must not tear down a view meant to stay open for minutes.
+async fn poll_stats(stack_dir: &Path, compose_file: &str) -> Vec<ContainerStats> {
+    let owned = compose::stats_args();
+    let args: Vec<&str> = owned.iter().map(String::as_str).collect();
+    let command = compose::command(stack_dir, compose_file, &args);
+
+    let outcome = match compose::run_with_timeout(command, STATS_COMMAND_TIMEOUT).await {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            tracing::warn!(%error, dir = %stack_dir.display(), "docker compose stats could not run");
+            return Vec::new();
+        }
+    };
+    if !outcome.success() {
+        tracing::warn!(
+            dir = %stack_dir.display(),
+            details = %outcome.failure_details(),
+            "docker compose stats failed"
+        );
+        return Vec::new();
+    }
+    match stats::parse_stats(&outcome.stdout) {
+        Ok(containers) => containers,
+        Err(error) => {
+            tracing::warn!(%error, "could not parse docker compose stats output");
+            Vec::new()
+        }
+    }
 }
 
 // --- helpers ---------------------------------------------------------------

@@ -26,6 +26,7 @@ function renderCard(value: Stack, busy = false) {
       onAction={onAction}
       onShowOperation={onShowOperation}
       onLogs={vi.fn()}
+      onStats={vi.fn()}
       onCompose={vi.fn()}
       onEnv={vi.fn()}
     />
@@ -56,6 +57,19 @@ describe("StackCard", () => {
     expect(screen.getByRole("button", { name: "Logs" })).toBeEnabled()
     expect(screen.getByRole("button", { name: "Compose" })).toBeEnabled()
   })
+
+  it("offers Stats while the stack is up", () => {
+    renderCard(stack({ status: "running" }))
+    expect(screen.getByRole("button", { name: "Stats" })).toBeInTheDocument()
+  })
+
+  it.each(["stopped", "not_created", "unknown"] as const)(
+    "hides Stats on a %s stack: there is nothing running to report on",
+    (status) => {
+      renderCard(stack({ status }))
+      expect(screen.queryByRole("button", { name: "Stats" })).toBeNull()
+    }
+  )
 
   it("hides the .env button when the file does not exist", () => {
     renderCard(stack({ has_env_file: false }))
@@ -139,7 +153,14 @@ describe("StackCard", () => {
     renderCard(stack({ status: "running", has_env_file: true }))
     const stop = screen.getByRole("button", { name: "Stop" })
     expect(stop.classList.contains("text-destructive-emphasis")).toBe(true)
-    for (const name of ["Update", "Restart", "Logs", "Compose", ".env"]) {
+    for (const name of [
+      "Update",
+      "Restart",
+      "Logs",
+      "Stats",
+      "Compose",
+      ".env",
+    ]) {
       const other = screen.getByRole("button", { name })
       expect(other.classList.contains("text-destructive-emphasis")).toBe(false)
     }

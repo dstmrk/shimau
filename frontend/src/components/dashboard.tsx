@@ -9,6 +9,7 @@ import {
   type ActiveOperation,
 } from "@/components/operation-console"
 import { StackCard } from "@/components/stack-card"
+import { StatsDialog } from "@/components/stats-dialog"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -44,6 +45,7 @@ export function Dashboard({
   const [query, setQuery] = React.useState("")
   const [operation, setOperation] = React.useState<ActiveOperation | null>(null)
   const [logsFor, setLogsFor] = React.useState<string | null>(null)
+  const [statsFor, setStatsFor] = React.useState<string | null>(null)
   const [composeFor, setComposeFor] = React.useState<string | null>(null)
   const [envFor, setEnvFor] = React.useState<string | null>(null)
   const [composeLoaded, setComposeLoaded] = React.useState(false)
@@ -208,6 +210,7 @@ export function Dashboard({
                 }
               }}
               onLogs={() => setLogsFor(stack.name)}
+              onStats={() => setStatsFor(stack.name)}
               onCompose={() => {
                 setComposeLoaded(true)
                 setComposeFor(stack.name)
@@ -228,6 +231,10 @@ export function Dashboard({
       <LogsDialog
         stack={logsFor}
         onOpenChange={(open) => !open && setLogsFor(null)}
+      />
+      <StatsDialog
+        stack={statsFor}
+        onOpenChange={(open) => !open && setStatsFor(null)}
       />
       <React.Suspense fallback={null}>
         {composeLoaded && (

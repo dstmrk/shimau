@@ -1,4 +1,5 @@
 import {
+  ActivityIcon,
   FileTextIcon,
   KeyRoundIcon,
   Loader2Icon,
@@ -30,6 +31,7 @@ export function StackCard({
   onAction,
   onShowOperation,
   onLogs,
+  onStats,
   onCompose,
   onEnv,
 }: {
@@ -38,6 +40,7 @@ export function StackCard({
   onAction: (action: StackAction) => void
   onShowOperation: () => void
   onLogs: () => void
+  onStats: () => void
   onCompose: () => void
   onEnv: () => void
 }) {
@@ -121,6 +124,12 @@ export function StackCard({
               <ScrollTextIcon data-icon="inline-start" />
               Logs
             </Button>
+            {isUp && (
+              <Button variant="ghost" onClick={onStats}>
+                <ActivityIcon data-icon="inline-start" />
+                Stats
+              </Button>
+            )}
             <Button variant="ghost" onClick={onCompose}>
               <FileTextIcon data-icon="inline-start" />
               Compose

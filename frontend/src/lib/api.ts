@@ -119,4 +119,6 @@ export const streams = {
   operation: (id: string) => `/api/operations/${encodeURIComponent(id)}/stream`,
   logs: (stack: string, tail: number) =>
     `/api/stacks/${encodeURIComponent(stack)}/logs/stream?tail=${tail}`,
+  stats: (stack: string) =>
+    `/api/stacks/${encodeURIComponent(stack)}/stats/stream`,
 }

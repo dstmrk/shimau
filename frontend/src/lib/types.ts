@@ -12,6 +12,20 @@ export interface OutputLine {
   text: string
 }
 
+/**
+ * One container's resource usage, as `docker compose stats` formats it —
+ * kept as Docker's own strings (e.g. `"12MiB / 512MiB"`), not reparsed.
+ */
+export interface ContainerStats {
+  Name: string
+  CPUPerc: string
+  MemUsage: string
+  MemPerc: string
+  NetIO: string
+  BlockIO: string
+  PIDs: string
+}
+
 /** A stack as returned by `GET /api/stacks`. */
 export interface Stack {
   name: string
