@@ -10,13 +10,15 @@ export const STACKS_QUERY_KEY = ["stacks"] as const
  *
  * Every refetch is a fresh directory scan plus a `docker compose ps` per
  * stack, which is exactly the point: there is no status database to go stale
- * (spec §4.2).
+ * (spec §4.2). The interval only needs to catch changes made outside shimau
+ * (a stack stopped from the CLI, a container that crashed) — a shimau-driven
+ * action already refetches immediately via `useStackAction`'s `onSettled`.
  */
 export function useStacks() {
   return useQuery({
     queryKey: STACKS_QUERY_KEY,
     queryFn: api.listStacks,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   })
 }
