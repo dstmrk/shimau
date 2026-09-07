@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked --version 0.21.2
+        run: cargo install cargo-audit --locked --version 0.22.2
       - name: Audit backend dependencies
         working-directory: backend
         run: cargo audit --deny warnings
