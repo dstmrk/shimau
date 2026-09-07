@@ -12,8 +12,12 @@ import type { ContainerStats } from "@/lib/types"
  * what stops the server's loop, the same way closing a log dialog kills
  * `docker compose logs --follow` behind it.
  */
-export function useStatsStream(url: string | null): ContainerStats[] {
+export function useStatsStream(url: string | null): {
+  containers: ContainerStats[]
+  ready: boolean
+} {
   const [containers, setContainers] = React.useState<ContainerStats[]>([])
+  const [ready, setReady] = React.useState(false)
 
   // Resetting during render rather than in an effect, same as the dialogs
   // that reset their buffers when the stack prop changes: it avoids a frame
@@ -22,6 +26,7 @@ export function useStatsStream(url: string | null): ContainerStats[] {
   if (url !== shownUrl) {
     setShownUrl(url)
     setContainers([])
+    setReady(false)
   }
 
   React.useEffect(() => {
@@ -32,6 +37,7 @@ export function useStatsStream(url: string | null): ContainerStats[] {
     source.addEventListener("stats", (event) => {
       try {
         setContainers(JSON.parse((event as MessageEvent).data))
+        setReady(true)
       } catch {
         // A malformed frame is not worth tearing the stream down for.
       }
@@ -39,5 +45,5 @@ export function useStatsStream(url: string | null): ContainerStats[] {
     return () => source.close()
   }, [url])
 
-  return containers
+  return { containers, ready }
 }

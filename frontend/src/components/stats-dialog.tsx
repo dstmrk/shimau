@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useStatsStream } from "@/hooks/use-stats-stream"
 import { streams } from "@/lib/api"
 
@@ -24,7 +25,9 @@ export function StatsDialog({
   stack: string | null
   onOpenChange: (open: boolean) => void
 }) {
-  const containers = useStatsStream(stack ? streams.stats(stack) : null)
+  const { containers, ready } = useStatsStream(
+    stack ? streams.stats(stack) : null
+  )
 
   return (
     <Dialog open={stack !== null} onOpenChange={onOpenChange}>
@@ -36,7 +39,13 @@ export function StatsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {containers.length === 0 ? (
+        {!ready ? (
+          <div className="space-y-2" aria-label="Loading stats">
+            {Array.from({ length: 3 }, (_, i) => (
+              <Skeleton key={i} className="h-8 w-full" />
+            ))}
+          </div>
+        ) : containers.length === 0 ? (
           <p className="rounded-md border bg-muted/15 p-3 text-sm text-muted-foreground">
             No running containers to report on.
           </p>
