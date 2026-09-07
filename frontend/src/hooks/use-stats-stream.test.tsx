@@ -45,8 +45,11 @@ const CONTAINER: ContainerStats = {
 
 function open(url: string | null) {
   let seen: ContainerStats[] = []
+  let seenReady = false
   function Probe() {
-    seen = useStatsStream(url)
+    const state = useStatsStream(url)
+    seen = state.containers
+    seenReady = state.ready
     return null
   }
   const view = render(<Probe />)
@@ -54,6 +57,7 @@ function open(url: string | null) {
     view,
     source: FakeEventSource.instances.at(-1),
     latest: () => seen,
+    isReady: () => seenReady,
   }
 }
 
@@ -67,17 +71,41 @@ describe("useStatsStream", () => {
     expect(FakeEventSource.instances).toHaveLength(0)
   })
 
-  it("returns the latest snapshot", () => {
-    const { source, latest } = open("/api/stacks/app/stats/stream")
-    source?.emit("stats", [CONTAINER])
-    expect(latest()).toEqual([CONTAINER])
+  it("is not ready until the first snapshot arrives", () => {
+    const { isReady } = open("/api/stacks/app/stats/stream")
+    expect(isReady()).toBe(false)
   })
 
-  it("replaces the previous snapshot on the next event", () => {
-    const { source, latest } = open("/api/stacks/app/stats/stream")
+  it("returns the latest snapshot and flips ready", () => {
+    const { source, latest, isReady } = open("/api/stacks/app/stats/stream")
+    source?.emit("stats", [CONTAINER])
+    expect(latest()).toEqual([CONTAINER])
+    expect(isReady()).toBe(true)
+  })
+
+  it("replaces the previous snapshot on the next event, staying ready", () => {
+    const { source, latest, isReady } = open("/api/stacks/app/stats/stream")
     source?.emit("stats", [CONTAINER])
     source?.emit("stats", [])
     expect(latest()).toEqual([])
+    expect(isReady()).toBe(true)
+  })
+
+  it("resets ready when the url changes", () => {
+    let url = "/api/stacks/app/stats/stream"
+    let seenReady = false
+    function Probe() {
+      const state = useStatsStream(url)
+      seenReady = state.ready
+      return null
+    }
+    const view = render(<Probe />)
+    FakeEventSource.instances.at(-1)?.emit("stats", [CONTAINER])
+    expect(seenReady).toBe(true)
+
+    url = "/api/stacks/other/stats/stream"
+    view.rerender(<Probe />)
+    expect(seenReady).toBe(false)
   })
 
   it("closes the stream when the component goes away", () => {
