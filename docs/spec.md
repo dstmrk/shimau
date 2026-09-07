@@ -43,7 +43,7 @@ Example:
 
 ```text
 /home/user/docker-apps/
-├── octotracker/
+├── nextcloud/
 │   ├── compose.yaml
 │   └── .env
 ├── grafana/
@@ -74,7 +74,7 @@ The application recognizes `.env` only when it exists in the same directory as t
 Example:
 
 ```text
-/home/user/docker-apps/octotracker/
+/home/user/docker-apps/nextcloud/
 ├── compose.yaml
 └── .env
 ```
@@ -217,7 +217,7 @@ Conceptually:
 
 ```text
 ┌──────────────────────────────────────────────┐
-│ octotracker                    ● Running     │
+│ nextcloud                      ● Running     │
 │                                              │
 │ [Stop] [Update] [Restart] [Logs]             │
 │ [Compose] [.env]                             │
@@ -239,11 +239,11 @@ Long-running operations must expose live progress/output rather than only a spin
 For example:
 
 ```text
-Updating octotracker...
+Updating nextcloud...
 
-Pulling ghcr.io/example/octotracker:latest
+Pulling ghcr.io/example/nextcloud:latest
 Pull complete
-Recreating octotracker
+Recreating nextcloud
 Started
 
 ✓ Update completed
@@ -444,7 +444,7 @@ The recommended structure is:
 │   └── data/
 │
 └── docker-apps/
-    ├── octotracker/
+    ├── nextcloud/
     │   ├── compose.yaml
     │   └── .env
     └── ...

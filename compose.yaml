@@ -12,7 +12,7 @@
 #   │   ├── .env
 #   │   └── data/
 #   └── docker-apps/       ← SHIMAU_STACKS_DIR
-#       ├── octotracker/
+#       ├── nextcloud/
 #       └── ...
 
 services:
@@ -52,3 +52,11 @@ services:
       - ${SHIMAU_STACKS_DIR:?}:${SHIMAU_STACKS_DIR:?}
       # shimau.db: the administrator account and its sessions, nothing else.
       - ./data:/app/data
+
+    # Docker's default json-file driver has no size cap: an uncapped log can
+    # grow for as long as the container runs. Bound it explicitly.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
