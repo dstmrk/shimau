@@ -4,6 +4,7 @@
 //! it, and the set of commands it can build is closed. There is no generic
 //! execution path — `Action` is an enum, never a string from a request.
 
+pub mod stats;
 pub mod status;
 
 use std::path::Path;
@@ -112,6 +113,21 @@ pub fn command(stack_dir: &Path, compose_file: &str, subcommand: &[&str]) -> Com
         }
     }
     cmd
+}
+
+/// Argv for `docker compose stats`.
+///
+/// `--no-stream` makes it a one-shot snapshot instead of a redrawing terminal
+/// display, so each poll is an ordinary command with a budget like any other
+/// (spec's "every command that answers a request has a budget"), rather than
+/// a second long-lived child alongside `logs --follow`.
+pub fn stats_args() -> Vec<String> {
+    vec![
+        "stats".to_string(),
+        "--no-stream".to_string(),
+        "--format".to_string(),
+        "json".to_string(),
+    ]
 }
 
 /// Argv for `docker compose logs`.
@@ -310,6 +326,14 @@ mod tests {
                 "up",
                 "-d"
             ]
+        );
+    }
+
+    #[test]
+    fn stats_args_are_a_one_shot_json_snapshot() {
+        assert_eq!(
+            stats_args(),
+            vec!["stats", "--no-stream", "--format", "json"]
         );
     }
 

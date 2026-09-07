@@ -115,6 +115,7 @@ fn api_router(state: AppState) -> Router {
         .route("/stacks/{stack}/update", post(stacks::update))
         .route("/stacks/{stack}/logs", get(stacks::logs))
         .route("/stacks/{stack}/logs/stream", get(stacks::logs_stream))
+        .route("/stacks/{stack}/stats/stream", get(stacks::stats_stream))
         .route(
             "/stacks/{stack}/compose",
             get(stacks::read_compose).put(stacks::write_compose),

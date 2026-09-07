@@ -49,6 +49,7 @@ shimau/
 | How is a file replaced without losing it? | `backend/src/stacks/files.rs` |
 | Which Docker commands can shimau run? | `backend/src/compose/mod.rs` |
 | How is a stack's status derived? | `backend/src/compose/status.rs` |
+| How is per-container CPU/memory/IO read? | `backend/src/compose/stats.rs` |
 | Where does an action's live output come from? | `backend/src/ops/mod.rs` |
 | What is the route table? | `backend/src/api/mod.rs` |
 | Where is the session checked? | `backend/src/api/auth.rs` (`require_session`) |
@@ -87,6 +88,7 @@ POST /api/stacks/{stack}/update
 
 GET  /api/stacks/{stack}/logs?tail=N
 GET  /api/stacks/{stack}/logs/stream  SSE
+GET  /api/stacks/{stack}/stats/stream SSE: docker compose stats, polled
 GET  /api/stacks/{stack}/compose
 PUT  /api/stacks/{stack}/compose      validate, then replace atomically
 GET  /api/stacks/{stack}/env          404 when the file does not exist

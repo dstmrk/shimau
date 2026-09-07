@@ -110,6 +110,21 @@ with raw progress ticks during a long `pull`. Collapsing at the source would
 mean parsing Compose output in the backend as well — the same knowledge in two
 languages, for a transcript nobody reads after the run.
 
+## A polled stream is not a followed one
+
+`GET /api/stacks/{stack}/stats/stream` looks like the log stream but is built
+differently: `docker compose stats --no-stream` is a snapshot, not something
+that follows, so there is no long-lived child to hold open. The handler loops
+`run_with_timeout` on its own timer (`STATS_POLL_INTERVAL`) and pushes one
+`stats` event per tick; the loop itself — not a child process — is what ends
+when axum drops the stream on disconnect. A tick that fails (timeout,
+non-zero exit, bad JSON) is logged and answered as an empty snapshot rather
+than tearing the stream down, the same "one bad moment must not kill a view
+meant to stay open for minutes" reasoning as the stopped-stack case below.
+Reach for this shape — timed poll instead of `--follow` — whenever the
+Compose subcommand behind a live view is a one-shot rather than a streaming
+one.
+
 ## A stopped stack is not an error
 
 `docker compose logs --follow` on a stack with no containers returns what
