@@ -388,9 +388,11 @@ in `environment:`. `GET .../logs` returns application output, where programs
 print connection strings at startup. The `.env` masking in section 4.6 is a
 browser affordance and protects none of this.
 
-The honest statement, and the one the README has to make, is that **any API
-token reads the secrets of the infrastructure shimau manages.** Treat one as
-you would the administrator password.
+The honest statement, and the one the operator-facing documentation has to
+make, is that **any API token reads the secrets of the infrastructure shimau
+manages.** Treat one as you would the administrator password. It is in
+`docs/security.md` in full, and in one line in the README beside the `curl`
+that uses a token.
 
 ### 7.2 Docker socket
 

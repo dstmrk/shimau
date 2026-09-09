@@ -22,8 +22,8 @@ keeps no copy of anything.
   exactly one of `compose.yaml`, `compose.yml`, `docker-compose.yaml` or
   `docker-compose.yml`. The directory name is the stack name.
 - **Start · Stop · Restart · Update.** Update is `docker compose pull` then
-  `docker compose up -d`, nothing cleverer. Stop is `docker compose stop`, so
-  containers, networks and volumes survive.
+  `up -d`. Stop is `docker compose stop`, so containers, networks and volumes
+  survive.
 - **Live output.** Operations and logs stream line by line, with the exact
   command at the top so you can reproduce it by hand.
 - **Editors.** The Compose file is edited in place, under its own name, and
@@ -82,8 +82,8 @@ afterwards.
 > answer for something that controls Docker.
 
 Images are published for `linux/amd64` and `linux/arm64`, one set per release.
-`latest` is the newest tagged version; `X.Y.Z` and `X.Y` pin you to one. Merges
-to `main` are tested but never published, so `latest` does not move under you.
+`latest` is the newest tagged version, `X.Y.Z` and `X.Y` pin you to one, and
+merges to `main` are tested but never published.
 
 ### Updating
 
@@ -99,15 +99,8 @@ database, in `./data`, holds one account, its sessions and any API tokens.
 **The stacks path must be identical inside and outside the container.** Your
 Compose files use relative bind mounts (`./data:/data`) that the *host* daemon
 resolves; mount them elsewhere inside the container and every one of those
-volumes points at nothing. So `compose.yaml` writes the path once, uses it
-twice:
-
-```yaml
-environment:
-  SHIMAU_STACKS_DIR: ${SHIMAU_STACKS_DIR:?}
-volumes:
-  - ${SHIMAU_STACKS_DIR:?}:${SHIMAU_STACKS_DIR:?}   # same on both sides
-```
+volumes points at nothing. `compose.yaml` writes `SHIMAU_STACKS_DIR` once and
+uses it for both sides of the mount, which is why you never edit that file.
 
 ### Configuration
 
@@ -121,102 +114,40 @@ volumes:
 | `SHIMAU_COOKIE_SECURE` | `true` | Set to `false` only when reaching shimau over plain HTTP |
 | `SHIMAU_SESSION_TTL_HOURS` | `168` | Session lifetime |
 | `SHIMAU_LOG_TAIL` | `200` | Log lines fetched before following |
-| `SHIMAU_TRUSTED_PROXY_HEADER` | — | Header carrying the real client address. See below |
+| `SHIMAU_TRUSTED_PROXY_HEADER` | — | Real client address behind a proxy. Read `docs/security.md` before setting it |
 | `SHIMAU_LOG` | `info` | `tracing` filter |
-
-Set `SHIMAU_TRUSTED_PROXY_HEADER` to what your proxy sends —
-`X-Forwarded-For` for nginx, Traefik and Caddy, `CF-Connecting-IP` for
-Cloudflare — and only when shimau cannot be reached except through it.
-Without it, every request behind a tunnel arrives from the tunnel's address,
-so the login limiter counts them all together and six wrong guesses at `admin`
-from anyone hold you out too. With it set on a shimau that is also reachable
-directly, a caller can write the header and pick its own limiter key.
 
 ## From a script or an agent
 
 Anything that is not a browser authenticates with an API token instead of the
-session cookie. Create one from the key icon in the header. It is shown once.
+session cookie. Create one from the key icon in the header; it is shown once.
 
 ```bash
 curl -H "Authorization: Bearer shimau_…" http://localhost:8080/api/stacks
 ```
 
-A token carries one of two capabilities. **Read** covers stacks, status, logs,
-resource usage, Compose files and operations. **Operate** adds start, stop,
-restart and update. Neither can edit a `compose.yaml` or a `.env`: a machine
-that can write a Compose file and then start the stack can give a service
-`privileged: true` and a bind mount of `/`, and `docker compose config` would
-accept every line of it. Editing stays with the browser session.
+A token carries **read** or **operate** — the second adds the four lifecycle
+actions. Neither can edit a `compose.yaml` or a `.env`, and a token reads every
+secret your Compose files and logs contain.
 
 `docs/openapi.yaml` describes the whole surface. Point a generic OpenAPI-to-MCP
 bridge at it if you want an MCP server; shimau does not ship one, because the
 capabilities are already the HTTP API.
 
-> **A token reads your secrets.** Compose files carry them inline in
-> `environment:`, and applications print connection strings into their logs.
-> The `.env` masking in the UI does not change that. Treat a token like the
-> administrator password, and revoke the ones you stop using — the list shows
-> when each was last seen.
-
 ## Security
 
 shimau controls Docker, which makes it an administrative application. Treat it
-as one.
+as one. Authentication is mandatory and cannot be turned off, the Docker socket
+is a boundary you cannot mount away, nothing from a request ever becomes a
+filesystem path, and `.env` is never logged.
 
-- **Authentication is mandatory** and cannot be turned off. One local account,
-  Argon2id, a session cookie that is `HttpOnly`, `SameSite=Lax` and `Secure` by
-  default, and exponential backoff per address and username.
-- **API tokens are stored as a SHA-256**, never in the clear, and are revocable
-  one at a time. No token can write a file or mint another token, so a token
-  is never a way out of its own capability.
-- **The Docker socket is a privilege boundary you cannot mount away.** A
-  read-only bind of `/var/run/docker.sock` is not a control. The answer is a
-  small closed set of operations, not a Docker API proxy.
-- **Nothing from the browser becomes a path.** A stack name goes through a
-  character allowlist, then a canonical-path check against the configured
-  directory. A symlink pointing out of it is refused.
-- **Compose subprocesses get an environment allowlist**, not shimau's own, so a
-  Compose file cannot interpolate `${SHIMAU_ADMIN_PASSWORD}` and read it back.
-- **`.env` content is never logged**, `.env` and its backup are `0600`, and
-  every API response carries `Cache-Control: no-store`.
-- **Every response carries a Content-Security-Policy** with `script-src 'self'`:
-  no CDN, no inline script, no `eval`. Behind a proxy that injects its own, the
-  stricter of the two wins, and one without `'unsafe-inline'` on `style-src`
-  breaks the editors.
+`docs/security.md` is the whole picture, including what shimau leaves to you.
 
-Cloudflare Access, Tailscale or a VPN in front is a good idea, as a layer on
-top of shimau's authentication rather than a replacement for it.
+## More
 
-## Development
-
-Rust 1.85+ and Node 22+.
-
-```bash
-# API on :8080
-cd backend
-SHIMAU_STACKS_DIR=/path/to/your/stacks \
-SHIMAU_DATA_DIR=./data \
-SHIMAU_STATIC_DIR=../frontend/dist \
-SHIMAU_COOKIE_SECURE=false \
-SHIMAU_ADMIN_PASSWORD=dev-password-please \
-cargo run
-
-# UI on :5173, proxying /api to :8080
-cd frontend && npm install && npm run dev
-```
-
-```bash
-cd backend && cargo test          # unit + HTTP suite
-cd frontend && npm run test       # Vitest
-node scripts/check-docs.mjs       # documentation references
-```
-
-The Compose validation tests shell out to `docker compose config`, which needs
-the CLI but not a running daemon. Without the CLI they skip themselves.
-
-`docs/spec.md` is the specification the project is built from. `CLAUDE.md` and
-`docs/architecture/INDEX.md` are the map for whoever, or whatever, works on it
-next.
+- `docs/development.md` — running the two halves, the tests, what CI runs.
+- `docs/spec.md` — the specification the project is built from.
+- `docs/architecture/INDEX.md` — the codebase map, for anyone changing it.
 
 ## Why it exists
 
@@ -225,8 +156,8 @@ belongs. That is the job: your Compose projects, tidy and reachable, owned by
 the filesystem rather than by shimau.
 
 Dockge had the right core idea, a file-based Compose UI that does not try to
-replace the whole Docker administration ecosystem. shimau keeps it, cuts
-further, and rebuilds on Rust and React.
+replace the whole Docker administration ecosystem. shimau keeps it and cuts
+further.
 
 ## Licence
 
