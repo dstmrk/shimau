@@ -37,7 +37,11 @@ function renderDashboard(stacks: Stack[]) {
     <ThemeProvider>
       <QueryClientProvider client={client}>
         <Dashboard
-          identity={{ username: "admin", version: "0.0.0" }}
+          identity={{
+            username: "admin",
+            version: "0.0.0",
+            principal: "session",
+          }}
           onSignedOut={vi.fn()}
         />
       </QueryClientProvider>

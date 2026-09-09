@@ -78,8 +78,8 @@ FROM debian:trixie-slim AS runtime
 # Pinned deliberately: an image that manages Compose projects should not
 # inherit whatever CLI version happens to be current on rebuild. Bumping these
 # is a reviewed change (spec §9.2).
-ARG DOCKER_CLI_VERSION=5:29.7.2-1~debian.13~trixie
-ARG DOCKER_COMPOSE_VERSION=5.5.0-1~debian.13~trixie
+ARG DOCKER_CLI_VERSION=5:29.8.0-1~debian.13~trixie
+ARG DOCKER_COMPOSE_VERSION=5.5.1-1~debian.13~trixie
 
 RUN set -eux; \
     apt-get update; \

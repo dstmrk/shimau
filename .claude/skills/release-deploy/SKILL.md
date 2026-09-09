@@ -137,21 +137,58 @@ docker buildx build --platform linux/arm64 .
 `.trivyignore.yaml` carries the findings the image ships with, each scoped to
 the binary it was found in, with a reason and an `expired_at`.
 
-Everything in it today is in a Go binary Docker built: the CLI's Go standard
-library, and the Compose plugin's vendored `x/crypto`, `x/mod` and `grpc`.
-None can be fixed from this repository — the pinned versions are already the
-newest published, and only a Docker rebuild moves them. The Debian layer
-itself scans clean.
+It is empty as of v1.0.0, and that is the goal state. The Debian layer scans
+clean; everything that ever lived in this file was in a Go binary Docker built.
 
-Three rules for that file:
+**Check the pins before writing a suppression.** This is the rule the file was
+missing. It held twelve entries whose statements said the pinned versions were
+already the newest published — and by v1.0.0 that had quietly stopped being
+true. Bumping the Compose plugin 5.5.0 → 5.5.1 and the CLI 29.7.2 → 29.8.0
+retired all twelve at once. None had been exploitable; all twelve were
+avoidable. A suppression argues the vulnerable code is unreachable and asks a
+human to re-read that argument on a date. A pin bump deletes the code.
+
+Nothing watches those pins for you. Dependabot's docker ecosystem tracks base
+images, not apt version pins, so a newer `docker-ce-cli` or
+`docker-compose-plugin` can sit published for weeks unnoticed. On any Trivy
+finding, first:
+
+```bash
+# published for both architectures — they must match, or the exact-version
+# pin fails the arm64 build
+for arch in amd64 arm64; do
+  curl -fsSL "https://download.docker.com/linux/debian/dists/trixie/stable/binary-$arch/Packages.gz" \
+    | gunzip | grep -E '^(Package|Version):' | paste - - \
+    | grep -E 'docker-ce-cli|docker-compose-plugin' | tail -4
+done
+```
+
+Then confirm the candidate actually carries the fix, by reading the binary
+rather than the release notes. Go binaries embed their module list:
+
+```bash
+strings docker-compose | grep -oE 'google\.golang\.org/grpc@v[0-9.]*'   # → v1.83.2
+strings docker | grep -oE '^go1\.[0-9]+(\.[0-9]+)?$' | sort -V | tail -1 # → go1.26.8
+```
+
+`go version -m` looks like the right tool and is not: a toolchain older than
+the binary's cannot read its modinfo, and the docker CLI returns no `dep`
+lines at all. `strings` works on both.
+
+The Trivy table names the component it attributes a finding to, and that is
+not always what the CVE title suggests: the CLI's `x/net` CVEs are reported
+against `stdlib`, keyed on the toolchain version, so a Go bump clears them.
+`TRIVY_SHOW_SUPPRESSED` is set on the step, so a run's log lists exactly which
+entries still match — the cheapest way to find a stale one is to read the last
+green scan.
+
+Three rules for entries that are genuinely unavoidable:
 
 - **Scope every entry to a path.** A CVE ignored globally is a CVE that stops
   failing the build when it appears in *our* code. `paths:` is what keeps the
   gate meaningful.
-- **`expired_at` is the review, and nothing else is.** Dependabot's docker
-  ecosystem tracks base images, not the apt version pins in the runtime stage,
-  so no bot will notice a Docker release that fixes these. When an entry
-  lapses, CI goes red and someone reads it again.
+- **`expired_at` is the review, and nothing else is.** When an entry lapses,
+  CI goes red and someone reads it again.
 - **Never extend a date without re-reading the finding.** The statement has to
   survive being read by someone who did not write it.
 

@@ -1,6 +1,6 @@
 # shimau — Product & Technical Specification
 
-> **Status:** v0.1, implemented  
+> **Status:** v1.0.0, implemented  
 > **Audience:** Maintainers and AI coding agents  
 > **Repository:** <https://github.com/dstmrk/shimau>  
 > **Project name:** shimau
@@ -354,6 +354,44 @@ Do not implement multi-user RBAC in the MVP.
 
 External identity providers, Cloudflare Access, Tailscale and similar systems may be used as an additional network/security layer, but they do not replace the application's own authentication in the MVP.
 
+#### API tokens (added in v1.0.0)
+
+A client that is not a browser presents an API token as
+`Authorization: Bearer shimau_…` instead of the session cookie.
+
+- Generated from the OS CSPRNG, 256 bits, prefixed `shimau_`.
+- Stored as a SHA-256, exactly as a session token is. Not Argon2id: a token
+  has no entropy to protect and the cost would be paid on every request.
+- Created and revoked only through the browser session. A token can never
+  reach `/api/tokens`, because a token that could mint a token would be its
+  own way out of its capability.
+- Shown once, at creation.
+
+Two capabilities, and this list is closed:
+
+| Capability | May |
+| --- | --- |
+| `read` | Every read: stacks, status, logs, stats, Compose content, operations |
+| `operate` | The same, plus start, stop, restart, update |
+
+**No capability writes a file.** `PUT .../compose` and `PUT .../env` require
+the session. A machine that can save a Compose file and then start the stack
+can give a service `privileged: true` and a bind mount of `/`, and
+`docker compose config` will accept every line of it — it validates syntax,
+not intent. Editing stays where a human is looking at the diff. A capability
+that writes files would be a new decision under section 16, not a default.
+
+#### What a token can read
+
+`GET .../compose` returns Compose files, which routinely carry secrets inline
+in `environment:`. `GET .../logs` returns application output, where programs
+print connection strings at startup. The `.env` masking in section 4.6 is a
+browser affordance and protects none of this.
+
+The honest statement, and the one the README has to make, is that **any API
+token reads the secrets of the infrastructure shimau manages.** Treat one as
+you would the administrator password.
+
 ### 7.2 Docker socket
 
 The manager requires access to the host Docker daemon, normally through:
@@ -406,6 +444,12 @@ The application should not maintain application/stack state in a database.
 The filesystem and Docker Compose are authoritative.
 
 A small SQLite database is acceptable for **manager-owned metadata**, primarily authentication and future UI/application settings.
+
+As of v1.0.0 it holds three tables — `users`, `sessions` and `api_tokens` —
+applied by a migrator keyed on `PRAGMA user_version`. Migrations are append
+only and every statement is idempotent, because the migration and the version
+bump that follows it are not one transaction: a process killed between them
+replays the migration on the next start.
 
 The database filename should use the eventual product name:
 
@@ -509,11 +553,21 @@ PUT  /api/stacks/:stack/compose
 
 GET  /api/stacks/:stack/env
 PUT  /api/stacks/:stack/env
+
+GET  /api/stacks/:stack/stats
+GET  /api/tokens
+POST /api/tokens
+DELETE /api/tokens/:id
 ```
 
 Exact naming can change during implementation, but the API must remain operation-specific and explicit.
 
 The API must not expose arbitrary command execution.
+
+`docs/openapi.yaml` describes the surface for clients that are not the shimau
+frontend. It is written by hand and follows `backend/src/api/mod.rs`; nothing
+generates or consumes it, so it goes stale silently unless a handler change
+updates it too.
 
 ## 11. Error Handling
 
@@ -695,6 +749,20 @@ The following decisions are considered settled unless deliberately revisited:
 - Managed stack path must be identical on host and inside the manager container.
 - Manager's own Compose project lives outside the managed stacks directory.
 
+Settled in v1.0.0:
+
+- Machine clients use revocable API tokens, not the session cookie.
+- Two capabilities, `read` and `operate`. Neither writes a file.
+- Token creation and revocation are session-only.
+- No MCP server. The capabilities an MCP integration would expose are already
+  the HTTP API: nine of the ten tools such a server would offer map onto
+  endpoints that exist. MCP adds transport and tool discovery, not capability,
+  and it would add the largest dependency in the project against a protocol
+  whose 2026-07-28 revision removed the session handshake and deprecated the
+  older transport. A client that wants MCP can put a generic OpenAPI bridge in
+  front of `docs/openapi.yaml`, outside this codebase. Revisit when a user
+  asks, not before.
+
 ## 17. Open Decisions — as resolved in the MVP
 
 These were left open until implementation planning. Each is recorded with the
@@ -712,13 +780,21 @@ decision taken; the two still open say so.
 | `.env` masking | Purely a UI reveal. The server returns the file verbatim; the editor masks values and stays read-only until revealed, so a masked buffer can never be saved back |
 | API naming and response schemas | As implemented in section 10, with an error body of `{ code, message, details?, retry_after_secs? }` |
 
-Still open, deliberately:
+Both questions left open in the MVP were closed in v1.0.0:
 
-- Whether a `.env` can be **created** from the UI for a stack that has none.
-  Today the endpoint answers 404, following section 4.6.
-- Whether the client address should be read from a proxy header when shimau
-  runs behind a reverse proxy. Today it is the socket address, because an
-  unauthenticated header would turn the login limiter off.
+| Question | Resolution |
+| --- | --- |
+| Whether a `.env` can be **created** from the UI for a stack that has none | Yes, through the existing `PUT`. `GET` still answers 404, because there is nothing to read, but refusing the write left the UI with no way to add a file Compose was already looking for. Created `0600`, with no backup, because there was nothing to back up |
+| Whether the client address should be read from a proxy header | Yes, opt-in. `SHIMAU_TRUSTED_PROXY_HEADER` names the header; unset means the socket address, as before. It had to be settled: behind a tunnel every request shares one address, so the per-address half of the limiter key collapses and six wrong guesses at `admin` from anyone hold the real administrator out. It stays opt-in because anything that can reach shimau directly can write the header and pick its own key |
+
+New decisions taken in v1.0.0, least confident first:
+
+| Question | Resolution |
+| --- | --- |
+| Whether `operate` should also permit editing a Compose file | No. It is the difference between a machine that can restart what you wrote and one that can write what it then runs, and the second is root on the host. If it is ever needed it arrives as a third capability with its own review |
+| How coarse `last_used_at` should be | Rewritten at most once a minute. It answers "is this token still in use", which is what revoking needs, and a write on every request would put a machine client's polling into the one serialised SQLite connection |
+| Whether a token may call `GET /api/auth/me` | Yes, and it reports `principal` and `capability`. An agent discovering what it may do beats an agent finding out by attempting an action and reading a 403 |
+| Where token management lives in the UI | A dialog from the header, not a settings route. The UI is one screen plus dialogs, and a new route is a bigger change than the feature |
 
 These must not expand the product scope without an explicit review.
 

@@ -8,13 +8,14 @@
 pub mod auth;
 pub mod operations;
 pub mod stacks;
+pub mod tokens;
 
 use std::sync::Arc;
 
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{middleware, Json, Router};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -115,6 +116,7 @@ fn api_router(state: AppState) -> Router {
         .route("/stacks/{stack}/update", post(stacks::update))
         .route("/stacks/{stack}/logs", get(stacks::logs))
         .route("/stacks/{stack}/logs/stream", get(stacks::logs_stream))
+        .route("/stacks/{stack}/stats", get(stacks::stats))
         .route("/stacks/{stack}/stats/stream", get(stacks::stats_stream))
         .route(
             "/stacks/{stack}/compose",
@@ -126,9 +128,18 @@ fn api_router(state: AppState) -> Router {
         )
         .route("/operations/{id}", get(operations::detail))
         .route("/operations/{id}/stream", get(operations::stream))
+        .route("/tokens", get(tokens::list).post(tokens::create))
+        .route("/tokens/{id}", delete(tokens::revoke))
+        // One gate for every route below: it establishes the principal and
+        // nothing more. What each principal may then do is declared by the
+        // extractors in the handler signatures — `Operator` on the lifecycle
+        // actions, `SessionOnly` on the file editors and on this token
+        // management surface. A layer could not draw that line here, because
+        // `/compose` and `/env` are a readable GET and a privileged PUT on one
+        // path, and a layer does not see the method.
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
-            auth::require_session,
+            auth::require_auth,
         ))
         .with_state(state);
 

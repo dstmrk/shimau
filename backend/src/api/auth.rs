@@ -2,18 +2,60 @@
 
 use std::net::SocketAddr;
 
-use axum::extract::{ConnectInfo, Request, State};
+use axum::extract::{ConnectInfo, FromRequestParts, Request, State};
+use axum::http::request::Parts;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::{Extension, Json};
+use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::auth::{password, ratelimit, session};
-use crate::db::{now_unix, AdminUser};
+use crate::auth::{password, ratelimit, session, token};
+use crate::db::{now_unix, AdminUser, ApiToken, Capability, TOUCH_INTERVAL_SECS};
 use crate::error::{ApiError, ApiResult};
 
 use super::AppState;
+
+/// Who is making a request, once [`require_auth`] has established it.
+///
+/// The two arms are not equal, and that asymmetry is the point. A session is
+/// the administrator in front of a browser: everything the product can do,
+/// including editing a Compose file, which is an operation a human should be
+/// looking at. A token is a machine, and no capability lets it write a file
+/// into a stack directory (see [`Capability`]).
+#[derive(Debug, Clone)]
+pub enum Principal {
+    Session(AdminUser),
+    Token(ApiToken),
+}
+
+impl Principal {
+    /// Whether this principal may run a lifecycle action on a stack.
+    pub fn may_operate(&self) -> bool {
+        match self {
+            Principal::Session(_) => true,
+            Principal::Token(token) => token.capability.may_operate(),
+        }
+    }
+
+    /// Whether this principal may replace a file in a stack directory.
+    ///
+    /// Only the session. A machine that can write `compose.yaml` and then
+    /// start the stack can give a service `privileged: true` and a bind mount
+    /// of `/`, which is root on the host in two steps. `docker compose config`
+    /// would accept every line of it: it validates syntax, not intent.
+    pub fn may_write_files(&self) -> bool {
+        matches!(self, Principal::Session(_))
+    }
+
+    /// How this principal appears in the log. Never the credential itself.
+    pub fn audit(&self) -> String {
+        match self {
+            Principal::Session(user) => format!("session:{}", user.username),
+            Principal::Token(token) => format!("token:{}({})", token.id, token.label),
+        }
+    }
+}
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -29,6 +71,12 @@ pub struct IdentityResponse {
     /// is read from the crate rather than from a build argument so it cannot
     /// disagree with the code that is running.
     pub version: &'static str,
+    /// Which credential answered. A machine client reads this to discover
+    /// what it is allowed to do without having to try an action and read a
+    /// 403 back.
+    pub principal: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capability: Option<Capability>,
 }
 
 impl IdentityResponse {
@@ -36,6 +84,20 @@ impl IdentityResponse {
         Self {
             username,
             version: env!("CARGO_PKG_VERSION"),
+            principal: "session",
+            capability: None,
+        }
+    }
+
+    fn for_principal(principal: &Principal) -> Self {
+        match principal {
+            Principal::Session(user) => Self::for_user(user.username.clone()),
+            Principal::Token(api_token) => Self {
+                username: api_token.label.clone(),
+                version: env!("CARGO_PKG_VERSION"),
+                principal: "token",
+                capability: Some(api_token.capability),
+            },
         }
     }
 }
@@ -44,9 +106,11 @@ impl IdentityResponse {
 pub async fn login(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> ApiResult<Response> {
-    let limiter_key = ratelimit::key(&peer.ip().to_string(), &body.username);
+    let address = client_address(&state, &headers, peer);
+    let limiter_key = ratelimit::key(&address, &body.username);
 
     if let Some(retry_after_secs) = state.limiter.retry_after(&limiter_key) {
         return Err(ApiError::TooManyRequests { retry_after_secs });
@@ -67,7 +131,7 @@ pub async fn login(
         let failures = state.limiter.record_failure(&limiter_key);
         tracing::warn!(
             username = %body.username,
-            peer = %peer.ip(),
+            peer = %address,
             failures,
             "failed login"
         );
@@ -89,7 +153,7 @@ pub async fn login(
         .await
         .map_err(ApiError::internal)?;
 
-    tracing::info!(username = %user.username, peer = %peer.ip(), "login");
+    tracing::info!(username = %user.username, peer = %address, "login");
 
     let cookie = session::set_cookie(&token, ttl_secs, state.config.cookie_secure);
     Ok((
@@ -114,27 +178,134 @@ pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> ApiRes
 }
 
 /// `GET /api/auth/me`
-pub async fn me(Extension(user): Extension<AdminUser>) -> Json<IdentityResponse> {
-    Json(IdentityResponse::for_user(user.username))
+pub async fn me(principal: Principal) -> Json<IdentityResponse> {
+    Json(IdentityResponse::for_principal(&principal))
 }
 
-/// Rejects unauthenticated requests and attaches the administrator to the
-/// request extensions for the handlers that want it.
-pub async fn require_session(
+/// Rejects unauthenticated requests and attaches the [`Principal`] to the
+/// request extensions for the extractors below.
+///
+/// A cookie wins over a bearer header when a request somehow carries both:
+/// the session is the stronger credential, so the choice cannot be used to
+/// downgrade a browser request into something a capability check would let
+/// through more easily.
+pub async fn require_auth(
     State(state): State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let token = token_from_headers(request.headers()).ok_or(ApiError::Unauthorized)?;
-    let user = state
-        .db
-        .session_user(session::token_hash(token))
-        .await
-        .map_err(ApiError::internal)?
+    let principal = authenticate(&state, request.headers())
+        .await?
         .ok_or(ApiError::Unauthorized)?;
 
-    request.extensions_mut().insert(user);
+    if let Principal::Token(api_token) = &principal {
+        // The row we just read already says when it was last recorded, so the
+        // staleness test costs nothing here. Without it every request from a
+        // polling client would queue a second write behind the one serialised
+        // SQLite connection to change a field by a few seconds. `touch_token`
+        // repeats the test in its `WHERE` clause, which is what makes two
+        // concurrent requests safe; this only keeps them from asking.
+        let stale = api_token
+            .last_used_at
+            .is_none_or(|last| now_unix() - last >= TOUCH_INTERVAL_SECS);
+        if stale {
+            if let Err(error) = state.db.touch_token(api_token.id).await {
+                // Losing the bookkeeping write must not fail the request it
+                // was recording: `last_used_at` is an aid to revoking, not a
+                // control.
+                tracing::warn!(%error, token = api_token.id, "could not record token use");
+            }
+        }
+    }
+
+    request.extensions_mut().insert(principal);
     Ok(next.run(request).await)
+}
+
+async fn authenticate(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Option<Principal>, ApiError> {
+    if let Some(cookie) = token_from_headers(headers) {
+        let user = state
+            .db
+            .session_user(session::token_hash(cookie))
+            .await
+            .map_err(ApiError::internal)?;
+        if let Some(user) = user {
+            return Ok(Some(Principal::Session(user)));
+        }
+    }
+
+    if let Some(presented) = bearer_from_headers(headers) {
+        let api_token = state
+            .db
+            .token_by_hash(token::hash(presented))
+            .await
+            .map_err(ApiError::internal)?;
+        if let Some(api_token) = api_token {
+            return Ok(Some(Principal::Token(api_token)));
+        }
+    }
+
+    Ok(None)
+}
+
+/// Extractor admitting any authenticated principal.
+///
+/// Absent extensions mean the route was wired without [`require_auth`], which
+/// is a bug in the router rather than something a client did. It answers as an
+/// internal error, and it fails closed either way.
+impl<S: Send + Sync> FromRequestParts<S> for Principal {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        parts
+            .extensions
+            .get::<Principal>()
+            .cloned()
+            .ok_or_else(|| ApiError::internal("a route ran without require_auth"))
+    }
+}
+
+/// Extractor admitting only a principal allowed to run lifecycle actions:
+/// the session, or a token with [`Capability::Operate`].
+pub struct Operator;
+
+impl<S: Send + Sync> FromRequestParts<S> for Operator {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let principal = Principal::from_request_parts(parts, state).await?;
+        if !principal.may_operate() {
+            return Err(ApiError::Forbidden(
+                "this token is read-only; a token with the operate capability is required".into(),
+            ));
+        }
+        Ok(Operator)
+    }
+}
+
+/// Extractor admitting only the browser session.
+///
+/// It guards the two things a machine credential is deliberately not given:
+/// writing a file into a stack directory, and minting or revoking tokens. The
+/// second matters as much as the first, because a token that could create
+/// another token would be its own escalation path out of its capability.
+pub struct SessionOnly;
+
+impl<S: Send + Sync> FromRequestParts<S> for SessionOnly {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let principal = Principal::from_request_parts(parts, state).await?;
+        if !principal.may_write_files() {
+            return Err(ApiError::Forbidden(
+                "an API token cannot do this; sign in as the administrator".into(),
+            ));
+        }
+        Ok(SessionOnly)
+    }
 }
 
 /// Checks a login attempt against the stored account.
@@ -160,6 +331,38 @@ fn token_from_headers(headers: &HeaderMap) -> Option<&str> {
         .get(header::COOKIE)
         .and_then(|value| value.to_str().ok())
         .and_then(session::token_from_cookie_header)
+}
+
+fn bearer_from_headers(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(token::from_authorization_header)
+}
+
+/// The address the login limiter counts failures against.
+///
+/// Behind a reverse proxy every request arrives from the proxy, which
+/// collapses the per-address half of the key: six failures against `admin`
+/// from anyone would hold the real administrator out for as long as they kept
+/// trying. `SHIMAU_TRUSTED_PROXY_HEADER` names the header carrying the real
+/// address, and is unset by default because anyone who can reach shimau
+/// directly can also write that header and pick their own key.
+///
+/// `X-Forwarded-For` accumulates a list as it crosses proxies, and the client
+/// is the first entry.
+fn client_address(state: &AppState, headers: &HeaderMap, peer: SocketAddr) -> String {
+    let Some(name) = state.config.trusted_proxy_header.as_deref() else {
+        return peer.ip().to_string();
+    };
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| peer.ip().to_string())
 }
 
 #[cfg(test)]

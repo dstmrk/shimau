@@ -134,12 +134,13 @@ export function StackCard({
               <FileTextIcon data-icon="inline-start" />
               Compose
             </Button>
-            {stack.has_env_file && (
-              <Button variant="ghost" onClick={onEnv}>
-                <KeyRoundIcon data-icon="inline-start" />
-                .env
-              </Button>
-            )}
+            {/* Offered even when the file is absent: Compose looks for a
+                `.env` next to the Compose file whether or not one is there,
+                and the editor was the only place to put one. */}
+            <Button variant="ghost" onClick={onEnv}>
+              <KeyRoundIcon data-icon="inline-start" />
+              {stack.has_env_file ? ".env" : "Add .env"}
+            </Button>
           </div>
         )}
       </CardContent>

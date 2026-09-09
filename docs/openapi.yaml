@@ -1,0 +1,671 @@
+openapi: 3.1.0
+
+# The HTTP surface, written down so a client that is not the shimau frontend
+# has something to read. It is descriptive: `backend/src/api/mod.rs` is the
+# route table, and this file follows it.
+#
+# Nothing here is generated. If you change a handler, change this too — the
+# frontend does not consume it, so nothing else will notice it has gone stale.
+
+info:
+  title: shimau
+  version: 1.0.0
+  summary: A tiny, modern Docker Compose manager.
+  description: |
+    Two credentials reach this API.
+
+    A **session cookie**, from `POST /api/auth/login`, is the administrator in
+    a browser and can do everything.
+
+    An **API token**, presented as `Authorization: Bearer shimau_…`, is for
+    clients that are not a browser. A token carries one capability:
+
+    - `read` — every GET below.
+    - `operate` — the same, plus start, stop, restart and update.
+
+    No token can write a file. `PUT /api/stacks/{stack}/compose`,
+    `PUT /api/stacks/{stack}/env` and everything under `/api/tokens` require
+    the session, and answer `403` to a token. A machine that could save a
+    Compose file and then start the stack could give a service
+    `privileged: true` and a bind mount of `/`, which is root on the host in
+    two steps; `docker compose config` validates syntax, not intent.
+
+    Anything a token can read is worth protecting accordingly. Compose files
+    routinely carry secrets inline, and application logs print connection
+    strings. A `read` token reads your infrastructure.
+  license:
+    name: MIT
+    url: https://github.com/dstmrk/shimau/blob/main/LICENSE
+
+servers:
+  - url: http://localhost:8080
+    description: A default local install.
+
+tags:
+  - name: auth
+  - name: stacks
+  - name: operations
+  - name: tokens
+
+security:
+  - sessionCookie: []
+  - bearerToken: []
+
+paths:
+  /api/health:
+    get:
+      tags: [auth]
+      summary: Liveness. The container HEALTHCHECK uses it.
+      security: []
+      responses:
+        "200":
+          description: The process is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+                  version: { type: string }
+
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Sign in and receive the session cookie.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Signed in. The session arrives in `Set-Cookie`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Identity" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429":
+          description: |
+            Throttled. Failures back off per client address and username; the
+            wait is in `Retry-After` and in `retry_after_secs`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      summary: Drop the session row and clear the cookie.
+      responses:
+        "204": { description: Signed out. }
+
+  /api/auth/me:
+    get:
+      tags: [auth]
+      summary: Who is calling, and what they may do.
+      description: |
+        A machine client can read `principal` and `capability` here instead of
+        attempting an action and reading a 403 back.
+      responses:
+        "200":
+          description: The current principal.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Identity" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/stacks:
+    get:
+      tags: [stacks]
+      summary: Every discovered stack, with its status.
+      description: The stacks directory is rescanned on every call.
+      responses:
+        "200":
+          description: The stacks, sorted by name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Stack" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/stacks/{stack}:
+    get:
+      tags: [stacks]
+      summary: One stack, with per-service container detail.
+      parameters: [{ $ref: "#/components/parameters/Stack" }]
+      responses:
+        "200":
+          description: The stack.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Stack"
+                  - type: object
+                    properties:
+                      services:
+                        type: array
+                        items: { $ref: "#/components/schemas/ServiceStatus" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/stacks/{stack}/start:
+    post:
+      tags: [stacks]
+      summary: "`docker compose up -d`."
+      description: |
+        Returns immediately with an operation id. Poll
+        `GET /api/operations/{id}` for progress and the final result.
+      parameters: [{ $ref: "#/components/parameters/Stack" }]
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Busy" }
+
+  /api/stacks/{stack}/stop:
+    post:
+      tags: [stacks]
+      summary: "`docker compose stop`. Never `down`."
+      description: Containers, networks and volumes survive.
+      parameters: [{ $ref: "#/components/parameters/Stack" }]
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Busy" }
+
+  /api/stacks/{stack}/restart:
+    post:
+      tags: [stacks]
+      summary: "`docker compose restart`."
+      parameters: [{ $ref: "#/components/parameters/Stack" }]
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Busy" }
+
+  /api/stacks/{stack}/update:
+    post:
+      tags: [stacks]
+      summary: "`docker compose pull`, then `up -d`."
+      description: |
+        The steps run in order and stop at the first non-zero exit, so a failed
+        pull never goes on to report a successful update.
+      parameters: [{ $ref: "#/components/parameters/Stack" }]
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Busy" }
+
+  /api/stacks/{stack}/logs:
+    get:
+      tags: [stacks]
+      summary: Recent log lines.
+      parameters:
+        - { $ref: "#/components/parameters/Stack" }
+        - name: tail
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 5000 }
+          description: Defaults to `SHIMAU_LOG_TAIL`, clamped to 1..5000.
+      responses:
+        "200":
+          description: The lines, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lines:
+                    type: array
+                    items: { $ref: "#/components/schemas/OutputLine" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /api/stacks/{stack}/logs/stream:
+    get:
+      tags: [stacks]
+      summary: The same logs, followed (SSE).
+      description: |
+        Events are `line` and then a final `finished`. The child process is
+        killed when the client disconnects.
+      parameters:
+        - { $ref: "#/components/parameters/Stack" }
+        - name: tail
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: An event stream.
+          content:
+            text/event-stream: { schema: { type: string } }
+
+  /api/stacks/{stack}/stats:
+    get:
+      tags: [stacks]
+      summary: One resource-usage snapshot.
+      description: |
+        A fresh `docker compose stats --no-stream`, so it costs a Docker round
+        trip and can take a second or more. A stack with nothing running is an
+        empty list, not an error; a Docker that did not answer is a `502`,
+        because "nothing running" and "could not ask" must not look alike.
+      parameters: [{ $ref: "#/components/parameters/Stack" }]
+      responses:
+        "200":
+          description: One entry per running container.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ContainerStats" }
+        "502": { $ref: "#/components/responses/Error" }
+
+  /api/stacks/{stack}/stats/stream:
+    get:
+      tags: [stacks]
+      summary: The same snapshot, repeated every two seconds (SSE).
+      description: |
+        Events are named `stats`. A failed poll is reported as an empty list
+        rather than ending the stream, because the next tick is two seconds
+        away. Use `GET /api/stacks/{stack}/stats` if you want the failure.
+      parameters: [{ $ref: "#/components/parameters/Stack" }]
+      responses:
+        "200":
+          description: An event stream.
+          content:
+            text/event-stream: { schema: { type: string } }
+
+  /api/stacks/{stack}/compose:
+    get:
+      tags: [stacks]
+      summary: The Compose file, under its own name.
+      parameters: [{ $ref: "#/components/parameters/Stack" }]
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileContent" }
+        "409":
+          description: The stack holds several Compose files and is ambiguous.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [stacks]
+      summary: Replace the Compose file. Session only.
+      description: |
+        The candidate is staged beside the target and validated with
+        `docker compose config --quiet`. Only on success is the current file
+        copied to `<name>.bak` and the candidate renamed into place, so a
+        rejected save leaves the original untouched. The filename never
+        changes.
+      parameters: [{ $ref: "#/components/parameters/Stack" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FileUpdate" }
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileContent" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422":
+          description: |
+            Rejected by `docker compose config`. `details` carries the
+            validator's own output.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/stacks/{stack}/env:
+    get:
+      tags: [stacks]
+      summary: The `.env` file, verbatim.
+      description: |
+        `404` when the stack has none. The response is the file as it is on
+        disk: masking is a browser affordance, not a server one.
+      parameters: [{ $ref: "#/components/parameters/Stack" }]
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnvContent" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [stacks]
+      summary: Write the `.env` file, creating it if absent. Session only.
+      description: |
+        Written byte for byte, never reinterpreted. The file and its backup are
+        `0600`. A stack that had no `.env` gets one, with no backup, because
+        there was nothing to back up.
+      parameters: [{ $ref: "#/components/parameters/Stack" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FileUpdate" }
+      responses:
+        "200":
+          description: Written.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnvContent" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/operations/{id}:
+    get:
+      tags: [operations]
+      summary: An operation and its buffered output.
+      description: |
+        Operations live in memory. At most 50 are retained and finished ones
+        are evicted first, so a `404` here can mean "finished a while ago"
+        rather than "never existed" — it is not a failure.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The snapshot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Operation" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/operations/{id}/stream:
+    get:
+      tags: [operations]
+      summary: The operation's output, replayed then followed (SSE).
+      description: |
+        The buffer is replayed on subscribe and the stream continues live, so
+        a reloaded page re-attaches without a gap.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: An event stream.
+          content:
+            text/event-stream: { schema: { type: string } }
+
+  /api/tokens:
+    get:
+      tags: [tokens]
+      summary: Every API token. Session only.
+      description: The token itself is never here; only its hash was stored.
+      responses:
+        "200":
+          description: The tokens, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ApiToken" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [tokens]
+      summary: Mint a token. Session only.
+      description: |
+        The only response that carries a token. shimau stored its SHA-256 and
+        cannot produce it again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label, capability]
+              properties:
+                label:
+                  type: string
+                  maxLength: 64
+                  description: What holds this token. No control characters.
+                capability: { $ref: "#/components/schemas/Capability" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiToken"
+                  - type: object
+                    required: [secret]
+                    properties:
+                      secret:
+                        type: string
+                        description: Shown once.
+                        examples: ["shimau_QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo"]
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/tokens/{id}:
+    delete:
+      tags: [tokens]
+      summary: Revoke a token. Session only.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "204": { description: Revoked. It authenticates nothing from now on. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: shimau_session
+      description: Set by `POST /api/auth/login`. `HttpOnly`, `SameSite=Lax`.
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: |
+        An API token from `POST /api/tokens`, presented as
+        `Authorization: Bearer shimau_…`.
+
+  parameters:
+    Stack:
+      name: stack
+      in: path
+      required: true
+      description: |
+        The stack's directory name. Letters, digits, `_`, `-` and `.`, not
+        starting with a dot. Anything else is a `400`, never a `404`.
+      schema: { type: string, maxLength: 128 }
+
+  responses:
+    Error:
+      description: An error.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: |
+        Authenticated, but this credential is not allowed to do this. Unlike a
+        `401`, retrying with the same credential will never work.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Accepted:
+      description: The operation started.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              operation_id: { type: string }
+    Busy:
+      description: |
+        Another operation is already running on this stack. The message names
+        it; wait for it to finish rather than retrying immediately.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable and machine-readable. Match on this, not on the message.
+          enum:
+            [
+              unauthorized,
+              forbidden,
+              not_found,
+              bad_request,
+              conflict,
+              validation_failed,
+              compose_failed,
+              rate_limited,
+              internal,
+            ]
+        message: { type: string, description: For a human. }
+        details:
+          type: string
+          description: Command output, when the failure produced any.
+        retry_after_secs: { type: integer }
+
+    Capability:
+      type: string
+      enum: [read, operate]
+      description: |
+        `read` covers every GET. `operate` adds the four lifecycle actions.
+        Neither writes a file.
+
+    Identity:
+      type: object
+      required: [username, version, principal]
+      properties:
+        username:
+          type: string
+          description: The administrator's name, or the token's label.
+        version: { type: string, description: The backend's version. }
+        principal: { type: string, enum: [session, token] }
+        capability: { $ref: "#/components/schemas/Capability" }
+
+    Stack:
+      type: object
+      required: [name, kind, has_env_file, status]
+      properties:
+        name: { type: string, description: The directory name. }
+        kind:
+          type: string
+          enum: [valid, ambiguous]
+          description: |
+            `ambiguous` means the directory holds more than one Compose file.
+            Every action on such a stack is refused until that is resolved.
+        compose_file: { type: string, description: Present when `valid`. }
+        compose_files:
+          type: array
+          items: { type: string }
+          description: Present when `ambiguous`.
+        has_env_file: { type: boolean }
+        status:
+          type: string
+          enum: [running, partial, stopped, not_created, unknown]
+          description: |
+            Derived from `docker compose ps` on every read; nothing is cached.
+            `unknown` means Docker could not be asked, which is deliberately
+            not the same as `not_created`.
+        active_operation_id:
+          type: string
+          description: Present while an operation is running on this stack.
+
+    ServiceStatus:
+      type: object
+      properties:
+        service: { type: string }
+        name: { type: string }
+        state: { type: string }
+        health: { type: string }
+        exit_code: { type: integer }
+
+    ContainerStats:
+      type: object
+      description: |
+        Docker's own strings, not reparsed: `MemUsage` is `"12MiB / 512MiB"`,
+        `CPUPerc` is `"0.15%"`.
+      properties:
+        Name: { type: string }
+        CPUPerc: { type: string }
+        MemUsage: { type: string }
+        MemPerc: { type: string }
+        NetIO: { type: string }
+        BlockIO: { type: string }
+        PIDs: { type: string }
+
+    OutputLine:
+      type: object
+      properties:
+        stream: { type: string, enum: [stdout, stderr] }
+        text: { type: string }
+
+    FileContent:
+      type: object
+      required: [filename, content]
+      properties:
+        filename: { type: string }
+        content: { type: string }
+
+    EnvContent:
+      allOf:
+        - $ref: "#/components/schemas/FileContent"
+        - type: object
+          properties:
+            exists: { type: boolean }
+
+    FileUpdate:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, maxLength: 1048576 }
+
+    Operation:
+      type: object
+      properties:
+        id: { type: string }
+        stack: { type: string }
+        action: { type: string, enum: [start, stop, restart, update] }
+        status: { type: string, enum: [running, succeeded, failed] }
+        exit_code: { type: [integer, "null"] }
+        started_at: { type: integer, description: Unix seconds. }
+        finished_at: { type: [integer, "null"] }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/OutputLine" }
+        truncated:
+          type: boolean
+          description: True when older lines were dropped from the buffer.
+
+    ApiToken:
+      type: object
+      required: [id, label, capability, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        label: { type: string }
+        capability: { $ref: "#/components/schemas/Capability" }
+        created_at: { type: integer, description: Unix seconds. }
+        last_used_at:
+          type: [integer, "null"]
+          description: |
+            Rewritten at most once a minute, so it answers "is this still in
+            use" rather than "when exactly".

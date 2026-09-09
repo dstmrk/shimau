@@ -71,14 +71,16 @@ describe("StackCard", () => {
     }
   )
 
-  it("hides the .env button when the file does not exist", () => {
+  it("offers to add a .env when the file does not exist", () => {
     renderCard(stack({ has_env_file: false }))
     expect(screen.queryByRole("button", { name: ".env" })).toBeNull()
+    expect(screen.getByRole("button", { name: "Add .env" })).toBeInTheDocument()
   })
 
   it("shows the .env button when the file exists", () => {
     renderCard(stack({ has_env_file: true }))
     expect(screen.getByRole("button", { name: ".env" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Add .env" })).toBeNull()
   })
 
   it("disables lifecycle actions while an operation is in flight", () => {

@@ -19,6 +19,7 @@ use crate::stacks::discovery::{self, DiscoveredStack, StackKind, ENV_FILENAME};
 use crate::stacks::files::{self, AtomicWrite, DEFAULT_MODE, MAX_EDITABLE_BYTES, SECRET_MODE};
 use crate::stacks::paths::{self, PathError};
 
+use super::auth::{Operator, Principal, SessionOnly};
 use super::AppState;
 
 /// Ceiling on a Compose command that has to answer an HTTP request, so an
@@ -129,26 +130,52 @@ pub async fn detail(
     }))
 }
 
-pub async fn start(state: State<AppState>, name: AxumPath<String>) -> ApiResult<Response> {
-    act(state, name, Action::Start).await
+// The four lifecycle actions. `Operator` is what stops a read-only token
+// starting a stack; it is repeated on each handler rather than hidden in
+// `act`, because an extractor only runs when it is in the handler signature
+// and a gate that can be forgotten by moving code is not a gate.
+
+pub async fn start(
+    _: Operator,
+    who: Principal,
+    state: State<AppState>,
+    name: AxumPath<String>,
+) -> ApiResult<Response> {
+    act(state, name, Action::Start, who).await
 }
 
-pub async fn stop(state: State<AppState>, name: AxumPath<String>) -> ApiResult<Response> {
-    act(state, name, Action::Stop).await
+pub async fn stop(
+    _: Operator,
+    who: Principal,
+    state: State<AppState>,
+    name: AxumPath<String>,
+) -> ApiResult<Response> {
+    act(state, name, Action::Stop, who).await
 }
 
-pub async fn restart(state: State<AppState>, name: AxumPath<String>) -> ApiResult<Response> {
-    act(state, name, Action::Restart).await
+pub async fn restart(
+    _: Operator,
+    who: Principal,
+    state: State<AppState>,
+    name: AxumPath<String>,
+) -> ApiResult<Response> {
+    act(state, name, Action::Restart, who).await
 }
 
-pub async fn update(state: State<AppState>, name: AxumPath<String>) -> ApiResult<Response> {
-    act(state, name, Action::Update).await
+pub async fn update(
+    _: Operator,
+    who: Principal,
+    state: State<AppState>,
+    name: AxumPath<String>,
+) -> ApiResult<Response> {
+    act(state, name, Action::Update, who).await
 }
 
 async fn act(
     State(state): State<AppState>,
     AxumPath(name): AxumPath<String>,
     action: Action,
+    who: Principal,
 ) -> ApiResult<Response> {
     let stack = resolve_stack(&state, &name)?;
     let compose_file = require_unambiguous(&stack)?.to_string();
@@ -163,7 +190,13 @@ async fn act(
             ))
         })?;
 
-    tracing::info!(stack = %stack.name, action = action.as_str(), operation = operation.id(), "action started");
+    tracing::info!(
+        stack = %stack.name,
+        action = action.as_str(),
+        operation = operation.id(),
+        by = %who.audit(),
+        "action started"
+    );
 
     Ok((
         StatusCode::ACCEPTED,
@@ -194,6 +227,7 @@ pub async fn read_compose(
 /// Spec §4.5 and §12: validate the candidate first, replace atomically, keep
 /// the original when validation fails, and never rename the file.
 pub async fn write_compose(
+    _: SessionOnly,
     State(state): State<AppState>,
     AxumPath(name): AxumPath<String>,
     Json(body): Json<FileUpdate>,
@@ -272,18 +306,19 @@ pub async fn read_env(
 /// The content is written verbatim: `.env` is a text file to this application
 /// and is never reinterpreted or normalised (spec §4.6). Nothing about it is
 /// logged.
+///
+/// A stack with no `.env` gets one. `GET` still answers 404 in that case,
+/// because there is nothing to read, but refusing the write too left the UI
+/// with no way to add the file that Compose was already going to look for.
+/// The new file is created `0600` like any other, and
+/// [`AtomicWrite::commit`] writes no backup when there was nothing to back up.
 pub async fn write_env(
+    _: SessionOnly,
     State(state): State<AppState>,
     AxumPath(name): AxumPath<String>,
     Json(body): Json<FileUpdate>,
 ) -> ApiResult<Json<EnvResponse>> {
     let stack = resolve_stack(&state, &name)?;
-    if !stack.has_env_file {
-        return Err(ApiError::NotFound(format!(
-            "{} has no .env file",
-            stack.name
-        )));
-    }
     check_size(&body.content)?;
     let path = resolve_in_stack(&stack.path, ENV_FILENAME)?;
 
@@ -379,6 +414,21 @@ pub async fn logs_stream(
     Ok(Sse::new(events).keep_alive(KeepAlive::default()))
 }
 
+/// `GET /api/stacks/{stack}/stats`
+///
+/// One snapshot. The browser follows [`stats_stream`] instead; this exists for
+/// a client that wants the current numbers and not a subscription, and it is
+/// the only stats shape a machine credential has any use for.
+pub async fn stats(
+    State(state): State<AppState>,
+    AxumPath(name): AxumPath<String>,
+) -> ApiResult<Json<Vec<ContainerStats>>> {
+    let stack = resolve_stack(&state, &name)?;
+    let compose_file = require_unambiguous(&stack)?.to_string();
+    let containers = read_stats(&stack.path, &compose_file, &stack.name).await?;
+    Ok(Json(containers))
+}
+
 /// `GET /api/stacks/{stack}/stats/stream` — SSE.
 ///
 /// A live view of `docker compose stats`, one `stats` event every
@@ -399,7 +449,7 @@ pub async fn stats_stream(
 
     let events = async_stream::stream! {
         loop {
-            let containers = poll_stats(&stack.path, &compose_file).await;
+            let containers = poll_stats(&stack.path, &compose_file, &stack.name).await;
             if let Ok(event) = Event::default().event("stats").json_data(&containers) {
                 yield Ok(event);
             }
@@ -410,34 +460,47 @@ pub async fn stats_stream(
     Ok(Sse::new(events).keep_alive(KeepAlive::default()))
 }
 
-/// One `docker compose stats` poll. Any failure — a timeout, a spawn error, a
-/// non-zero exit, output that does not parse — is logged and answered as "no
-/// containers", the same distinction the log stream draws: a hiccup on one
-/// tick must not tear down a view meant to stay open for minutes.
-async fn poll_stats(stack_dir: &Path, compose_file: &str) -> Vec<ContainerStats> {
+/// One `docker compose stats` snapshot, reporting why it failed when it did.
+async fn read_stats(
+    stack_dir: &Path,
+    compose_file: &str,
+    stack_name: &str,
+) -> ApiResult<Vec<ContainerStats>> {
     let owned = compose::stats_args();
     let args: Vec<&str> = owned.iter().map(String::as_str).collect();
     let command = compose::command(stack_dir, compose_file, &args);
 
-    let outcome = match compose::run_with_timeout(command, STATS_COMMAND_TIMEOUT).await {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            tracing::warn!(%error, dir = %stack_dir.display(), "docker compose stats could not run");
-            return Vec::new();
-        }
-    };
+    let message = format!("could not read the resource usage of {stack_name}");
+    let outcome = compose::run_with_timeout(command, STATS_COMMAND_TIMEOUT)
+        .await
+        .map_err(|error| unanswered(error, message.clone()))?;
+
     if !outcome.success() {
-        tracing::warn!(
-            dir = %stack_dir.display(),
-            details = %outcome.failure_details(),
-            "docker compose stats failed"
-        );
-        return Vec::new();
+        return Err(ApiError::ComposeFailed {
+            message,
+            details: outcome.failure_details(),
+        });
     }
-    match stats::parse_stats(&outcome.stdout) {
+
+    stats::parse_stats(&outcome.stdout).map_err(|error| {
+        ApiError::internal(format!("could not parse docker compose stats: {error}"))
+    })
+}
+
+/// One poll for the stream, where a failure is logged and answered as "no
+/// containers" rather than raised. That forgiveness is specific to the stream:
+/// a hiccup on one tick must not tear down a view meant to stay open for
+/// minutes, and the next tick is two seconds away.
+///
+/// [`stats`] deliberately does not share it. A one-shot request has no next
+/// tick, so an empty list there would say "nothing is running" when the truth
+/// was "Docker did not answer" — the distinction spec §4.2 insists on for
+/// status, and it is no less true of usage.
+async fn poll_stats(stack_dir: &Path, compose_file: &str, stack_name: &str) -> Vec<ContainerStats> {
+    match read_stats(stack_dir, compose_file, stack_name).await {
         Ok(containers) => containers,
         Err(error) => {
-            tracing::warn!(%error, "could not parse docker compose stats output");
+            tracing::warn!(%error, dir = %stack_dir.display(), "a stats poll failed");
             Vec::new()
         }
     }
