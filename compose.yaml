@@ -42,6 +42,13 @@ services:
       SHIMAU_COOKIE_SECURE: ${SHIMAU_COOKIE_SECURE:-true}
 
       SHIMAU_SESSION_TTL_HOURS: ${SHIMAU_SESSION_TTL_HOURS:-168}
+
+      # The header your proxy uses for the real client address, when shimau is
+      # behind one and cannot be reached any other way. Empty means "use the
+      # socket address", which is right for a direct install and wrong behind
+      # a tunnel, where every request would share one login-limiter key.
+      SHIMAU_TRUSTED_PROXY_HEADER: ${SHIMAU_TRUSTED_PROXY_HEADER:-}
+
       SHIMAU_LOG: ${SHIMAU_LOG:-info}
 
     volumes:
@@ -50,7 +57,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Same path on both sides — that is what the single variable guarantees.
       - ${SHIMAU_STACKS_DIR:?}:${SHIMAU_STACKS_DIR:?}
-      # shimau.db: the administrator account and its sessions, nothing else.
+      # shimau.db: the administrator account, its sessions and any API tokens.
+      # Nothing about your stacks.
       - ./data:/app/data
 
     # Docker's default json-file driver has no size cap: an uncapped log can

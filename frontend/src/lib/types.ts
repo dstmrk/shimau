@@ -60,7 +60,32 @@ export interface EnvContent extends FileContent {
 }
 
 export interface Identity {
+  /** The administrator's name, or a token's label when a token answered. */
   username: string
   /** Version of the backend serving this session, shown in the header. */
   version: string
+  /** Which credential answered. The browser is always `session`. */
+  principal: "session" | "token"
+  capability?: Capability
+}
+
+/**
+ * What an API token may do. Neither writes a file: a machine that can save a
+ * Compose file and start the stack has root on the host, so editing stays
+ * with the browser session.
+ */
+export type Capability = "read" | "operate"
+
+/** A token as returned by `GET /api/tokens`. Never carries the secret. */
+export interface ApiToken {
+  id: number
+  label: string
+  capability: Capability
+  created_at: number
+  last_used_at: number | null
+}
+
+/** The one response that carries a token, from `POST /api/tokens`. */
+export interface CreatedToken extends ApiToken {
+  secret: string
 }

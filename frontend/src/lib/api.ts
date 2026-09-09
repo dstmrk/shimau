@@ -1,4 +1,7 @@
 import type {
+  ApiToken,
+  Capability,
+  CreatedToken,
   EnvContent,
   FileContent,
   Identity,
@@ -112,6 +115,18 @@ export const api = {
     request<{ lines: OutputLine[] }>(
       `/api/stacks/${encodeURIComponent(stack)}/logs?tail=${tail}`
     ),
+
+  listTokens: () => request<ApiToken[]>("/api/tokens"),
+
+  /** The response is the only time the token exists outside the client. */
+  createToken: (label: string, capability: Capability) =>
+    request<CreatedToken>("/api/tokens", {
+      method: "POST",
+      body: JSON.stringify({ label, capability }),
+    }),
+
+  revokeToken: (id: number) =>
+    request<void>(`/api/tokens/${id}`, { method: "DELETE" }),
 }
 
 /** SSE endpoints. `EventSource` sends the session cookie same-origin. */

@@ -46,6 +46,16 @@ pub struct Config {
     pub session_ttl_hours: i64,
     /// Default number of log lines returned before following.
     pub log_tail: u32,
+    /// Header carrying the real client address, for the login limiter.
+    ///
+    /// Unset by default, and it must stay unset unless shimau is unreachable
+    /// except through the proxy: a caller that can talk to shimau directly can
+    /// also set this header, and would then choose its own limiter key.
+    ///
+    /// It exists because the socket address is the proxy's for every request
+    /// behind a tunnel, which collapses the per-address key. Six failures
+    /// against `admin` from anyone would then hold the real administrator out.
+    pub trusted_proxy_header: Option<String>,
     /// Commit the image was built from, set by the Dockerfile rather than by
     /// an operator. `None` for a binary built outside the image.
     pub build_sha: Option<String>,
@@ -93,6 +103,10 @@ impl Config {
         )?;
         let log_tail = parse_num::<u32>("SHIMAU_LOG_TAIL", get("SHIMAU_LOG_TAIL"), 200)?;
         let build_sha = get("SHIMAU_BUILD_SHA").filter(|sha| !sha.is_empty());
+        let trusted_proxy_header = parse_header_name(
+            "SHIMAU_TRUSTED_PROXY_HEADER",
+            get("SHIMAU_TRUSTED_PROXY_HEADER"),
+        )?;
 
         Ok(Self {
             stacks_dir,
@@ -105,6 +119,7 @@ impl Config {
             session_ttl_hours,
             log_tail,
             build_sha,
+            trusted_proxy_header,
         })
     }
 
@@ -147,6 +162,30 @@ fn parse_bool(
             expected: "boolean (true/false)",
         }),
     }
+}
+
+/// Validates a header name so it can never be turned into something else.
+///
+/// Lowercased on the way in, because `HeaderMap` lookups are lowercase and an
+/// operator will write `CF-Connecting-IP` the way the proxy documents it.
+fn parse_header_name(
+    var: &'static str,
+    value: Option<String>,
+) -> Result<Option<String>, ConfigError> {
+    let Some(raw) = value.filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    let valid = raw
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !valid {
+        return Err(ConfigError::Invalid {
+            var,
+            value: raw,
+            expected: "HTTP header name (letters, digits, - and _)",
+        });
+    }
+    Ok(Some(raw.to_ascii_lowercase()))
 }
 
 fn parse_num<T>(var: &'static str, value: Option<String>, default: T) -> Result<T, ConfigError>
@@ -204,7 +243,58 @@ mod tests {
         assert_eq!(cfg.session_ttl_hours, 168);
         assert_eq!(cfg.log_tail, 200);
         assert!(cfg.build_sha.is_none());
+        assert!(cfg.trusted_proxy_header.is_none());
         assert_eq!(cfg.database_path(), PathBuf::from("/app/data/shimau.db"));
+    }
+
+    #[test]
+    fn the_trusted_proxy_header_is_lowercased_for_lookup() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config::from_source(source(&[
+            ("SHIMAU_STACKS_DIR", dir.path().to_str().unwrap()),
+            ("SHIMAU_TRUSTED_PROXY_HEADER", "CF-Connecting-IP"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            cfg.trusted_proxy_header.as_deref(),
+            Some("cf-connecting-ip")
+        );
+    }
+
+    #[test]
+    fn an_empty_trusted_proxy_header_counts_as_unset() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config::from_source(source(&[
+            ("SHIMAU_STACKS_DIR", dir.path().to_str().unwrap()),
+            ("SHIMAU_TRUSTED_PROXY_HEADER", ""),
+        ]))
+        .unwrap();
+        assert!(cfg.trusted_proxy_header.is_none());
+    }
+
+    /// A header name that is not one cannot be allowed to reach `HeaderMap`,
+    /// where a value with a colon or a newline in it would be a request to
+    /// something other than what the operator wrote.
+    #[test]
+    fn a_malformed_trusted_proxy_header_is_rejected_at_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        for bad in ["X-Real IP", "X-Real-IP: spoofed", "x\r\nInjected"] {
+            let err = Config::from_source(source(&[
+                ("SHIMAU_STACKS_DIR", dir.path().to_str().unwrap()),
+                ("SHIMAU_TRUSTED_PROXY_HEADER", bad),
+            ]))
+            .unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    ConfigError::Invalid {
+                        var: "SHIMAU_TRUSTED_PROXY_HEADER",
+                        ..
+                    }
+                ),
+                "{bad:?} was accepted"
+            );
+        }
     }
 
     #[test]

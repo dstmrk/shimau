@@ -1,6 +1,12 @@
 import * as React from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { LayersIcon, LogOutIcon, RefreshCwIcon, SearchIcon } from "lucide-react"
+import {
+  KeyRoundIcon,
+  LayersIcon,
+  LogOutIcon,
+  RefreshCwIcon,
+  SearchIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { LogsDialog } from "@/components/logs-dialog"
@@ -11,6 +17,7 @@ import {
 import { StackCard } from "@/components/stack-card"
 import { StatsDialog } from "@/components/stats-dialog"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { TokensDialog } from "@/components/tokens-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -50,6 +57,7 @@ export function Dashboard({
   const [envFor, setEnvFor] = React.useState<string | null>(null)
   const [composeLoaded, setComposeLoaded] = React.useState(false)
   const [envLoaded, setEnvLoaded] = React.useState(false)
+  const [tokensOpen, setTokensOpen] = React.useState(false)
 
   async function start(stack: string, action: StackAction) {
     try {
@@ -128,6 +136,14 @@ export function Dashboard({
             <RefreshCwIcon
               className={stacks.isFetching ? "animate-spin" : undefined}
             />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="API tokens"
+            onClick={() => setTokensOpen(true)}
+          >
+            <KeyRoundIcon />
           </Button>
           <ThemeToggle />
           <Button
@@ -236,6 +252,7 @@ export function Dashboard({
         stack={statsFor}
         onOpenChange={(open) => !open && setStatsFor(null)}
       />
+      <TokensDialog open={tokensOpen} onOpenChange={setTokensOpen} />
       <React.Suspense fallback={null}>
         {composeLoaded && (
           <ComposeDialog

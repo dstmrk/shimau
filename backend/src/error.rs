@@ -14,6 +14,13 @@ pub enum ApiError {
     #[error("authentication required")]
     Unauthorized,
 
+    /// Authenticated, but this credential is not allowed to do this. Distinct
+    /// from [`ApiError::Unauthorized`] on purpose: retrying with the same
+    /// token will never work, and a client that cannot tell the two apart
+    /// will keep trying.
+    #[error("{0}")]
+    Forbidden(String),
+
     #[error("too many failed login attempts, retry in {retry_after_secs}s")]
     TooManyRequests { retry_after_secs: u64 },
 
@@ -59,6 +66,7 @@ impl ApiError {
     fn parts(&self) -> (StatusCode, &'static str) {
         match self {
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
+            ApiError::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             ApiError::TooManyRequests { .. } => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
             ApiError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
@@ -120,6 +128,10 @@ mod tests {
     fn status_codes_match_variants() {
         assert_eq!(ApiError::Unauthorized.parts().0, StatusCode::UNAUTHORIZED);
         assert_eq!(
+            ApiError::Forbidden("x".into()).parts().0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
             ApiError::NotFound("x".into()).parts().0,
             StatusCode::NOT_FOUND
         );
@@ -151,5 +163,13 @@ mod tests {
     fn internal_details_never_reach_the_client() {
         let body = ApiError::Internal("/srv/secret/path exploded".into()).into_response();
         assert_eq!(body.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    /// A client has to be able to tell "sign in" from "this credential will
+    /// never be enough", because only one of the two is worth retrying.
+    #[test]
+    fn unauthorized_and_forbidden_are_distinguishable_on_the_wire() {
+        assert_eq!(ApiError::Unauthorized.parts().1, "unauthorized");
+        assert_eq!(ApiError::Forbidden("x".into()).parts().1, "forbidden");
     }
 }

@@ -34,6 +34,10 @@ export function EnvDialog({
   const [revealed, setRevealed] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  // A stack with no `.env` opens an empty editor instead of an error. There
+  // is nothing to mask in a file that does not exist yet, so it starts
+  // revealed: the reveal gate protects secrets already on disk.
+  const [creating, setCreating] = React.useState(false)
 
   // Held in a ref, not read from the closure: the parent passes a new
   // callback identity on every render, and listing it in the effect deps
@@ -48,6 +52,7 @@ export function EnvDialog({
   if (stack !== shownStack) {
     setShownStack(stack)
     setRevealed(false)
+    setCreating(false)
     setContent("")
     setOriginal("")
     setLoading(stack !== null)
@@ -68,12 +73,20 @@ export function EnvDialog({
         setOriginal(file.content)
       })
       .catch((error: unknown) => {
-        if (!cancelled) {
-          toast.error(
-            error instanceof ApiError ? error.message : "Could not read .env"
-          )
-          close.current(false)
+        if (cancelled) {
+          return
         }
+        // 404 is "this stack has no .env", which is an offer to write one
+        // rather than a failure. Anything else still closes the dialog.
+        if (error instanceof ApiError && error.status === 404) {
+          setCreating(true)
+          setRevealed(true)
+          return
+        }
+        toast.error(
+          error instanceof ApiError ? error.message : "Could not read .env"
+        )
+        close.current(false)
       })
       .finally(() => {
         if (!cancelled) {
@@ -95,7 +108,8 @@ export function EnvDialog({
     try {
       const saved = await api.writeEnv(stack, content)
       setOriginal(saved.content)
-      toast.success(".env saved")
+      toast.success(creating ? ".env created" : ".env saved")
+      setCreating(false)
     } catch (error) {
       toast.error(
         error instanceof ApiError ? error.message : "Could not save .env"
@@ -109,10 +123,13 @@ export function EnvDialog({
     <Dialog open={stack !== null} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{stack} — .env</DialogTitle>
+          <DialogTitle>
+            {stack} — {creating ? "new .env" : ".env"}
+          </DialogTitle>
           <DialogDescription>
-            Written back exactly as typed. Values are hidden until you reveal
-            them.
+            {creating
+              ? "This stack has no .env yet. Saving creates one next to its Compose file, readable only by its owner."
+              : "Written back exactly as typed. Values are hidden until you reveal them."}
           </DialogDescription>
         </DialogHeader>
 
@@ -128,14 +145,18 @@ export function EnvDialog({
         )}
 
         <DialogFooter className="sm:justify-between">
-          <Button variant="ghost" onClick={() => setRevealed((v) => !v)}>
-            {revealed ? (
-              <EyeOffIcon data-icon="inline-start" />
-            ) : (
-              <EyeIcon data-icon="inline-start" />
-            )}
-            {revealed ? "Hide values" : "Reveal values to edit"}
-          </Button>
+          {creating ? (
+            <span />
+          ) : (
+            <Button variant="ghost" onClick={() => setRevealed((v) => !v)}>
+              {revealed ? (
+                <EyeOffIcon data-icon="inline-start" />
+              ) : (
+                <EyeIcon data-icon="inline-start" />
+              )}
+              {revealed ? "Hide values" : "Reveal values to edit"}
+            </Button>
+          )}
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               {dirty ? "Discard" : "Close"}
