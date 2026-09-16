@@ -81,8 +81,13 @@ FROM debian:trixie-slim AS runtime
 ARG DOCKER_CLI_VERSION=5:29.8.0-1~debian.13~trixie
 ARG DOCKER_COMPOSE_VERSION=5.5.1-1~debian.13~trixie
 
+# `upgrade` here pulls in trixie's own security patches for the base image's
+# apt packages (gzip, perl-base, libsqlite3, ...); those are unrelated to the
+# pins above and would otherwise sit stale until something else touched this
+# stage, failing the Trivy scan on packages nobody meant to freeze.
 RUN set -eux; \
     apt-get update; \
+    apt-get upgrade -y; \
     apt-get install -y --no-install-recommends ca-certificates curl gnupg; \
     install -m 0755 -d /etc/apt/keyrings; \
     curl -fsSL https://download.docker.com/linux/debian/gpg \
