@@ -132,6 +132,18 @@ Dependabot docker PR — build arm64 by hand before merging:
 docker buildx build --platform linux/arm64 .
 ```
 
+## Trivy flags a patch that is already published
+
+If the scan lists Debian packages (`libssl3t64`, `libpcre2-8-0`, ...) with a
+"fixed version" the image does not have, and the Dockerfile already runs
+`apt-get upgrade`, the cause is the layer cache, not the code: the `RUN` text
+never changes, so `cache-from: type=gha` serves the layer built before the
+patch existed. Every PR goes red at once, Dependabot's included, whatever it
+touches. Both `build-push-action` steps in `ci.yml` set
+`no-cache-filters: runtime` so that stage's apt layer is rebuilt each run.
+Do not fix this by editing a Dockerfile comment or by pushing to the
+Dependabot branches; the next patch brings it back.
+
 ## Accepted vulnerabilities
 
 `.trivyignore.yaml` carries the findings the image ships with, each scoped to
