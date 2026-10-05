@@ -149,6 +149,16 @@ Dependabot branches; the next patch brings it back.
 `.trivyignore.yaml` carries the findings the image ships with, each scoped to
 the binary it was found in, with a reason and an `expired_at`.
 
+`audit-ci.json` is the npm counterpart, read by the weekly
+`.github/workflows/scheduled-audit.yml`. Same contract: an allowlist entry
+carries `notes` and an `expiry`, and audit-ci fails again once the date
+passes. Allowlist by advisory ID, not by `ID|path`: audit-ci rebuilds the
+path from npm's `via` graph and the same lockfile yields different paths from
+one run to the next, so a path-scoped entry goes red at random. Run
+`npm audit fix --dry-run` first — its "fix" for a transitive advisory is often
+a semver-major downgrade of the parent (`shadcn` 4.x → 1.0.0), which is not a
+fix.
+
 It is empty as of v1.0.0, and that is the goal state. The Debian layer scans
 clean; everything that ever lived in this file was in a Go binary Docker built.
 
