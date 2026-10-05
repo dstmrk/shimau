@@ -1,4 +1,13 @@
 {
+  "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
   "moderate": true,
-  "allowlist": []
+  "allowlist": [
+    {
+      "GHSA-vfj7-8cjw-p6xm": {
+        "active": true,
+        "expiry": "2027-01-04",
+        "notes": "braces <= 3.0.3: stack exhaustion on an attacker-supplied nested brace pattern. No patched release exists. Reached only through the shadcn CLI, which globs paths the maintainer runs it on; the runtime image ships frontend/dist, never node_modules. Allowlisted by ID, not path: audit-ci derives the path from npm's via graph and it differs between runs."
+      }
+    }
+  ]
 }
