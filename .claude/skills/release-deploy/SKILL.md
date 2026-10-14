@@ -159,7 +159,13 @@ one run to the next, so a path-scoped entry goes red at random. Run
 a semver-major downgrade of the parent (`shadcn` 4.x → 1.0.0), which is not a
 fix.
 
-It is empty as of v1.0.0, and that is the goal state. The Debian layer scans
+It was empty at v1.0.0, and that is the goal state. It is not always
+reachable: the CLI and the Compose plugin ship on separate schedules, so a Go
+stdlib patch can land in `docker-ce-cli` weeks before the plugin. In October
+2026 CLI 29.9.0 (go1.26.9) cleared its findings while the newest plugin, 5.6.0,
+was still go1.26.8 with `x/net` 0.58.0; the plugin's rows were suppressed with
+an expiry and the CLI's were not. Bump the CLI even when the plugin cannot move,
+and suppress only the binary that has no fix. The Debian layer scans
 clean; everything that ever lived in this file was in a Go binary Docker built.
 
 **Check the pins before writing a suppression.** This is the rule the file was
