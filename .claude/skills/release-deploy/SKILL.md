@@ -165,7 +165,11 @@ stdlib patch can land in `docker-ce-cli` weeks before the plugin. In October
 2026 CLI 29.9.0 (go1.26.9) cleared its findings while the newest plugin, 5.6.0,
 was still go1.26.8 with `x/net` 0.58.0; the plugin's rows were suppressed with
 an expiry and the CLI's were not. Bump the CLI even when the plugin cannot move,
-and suppress only the binary that has no fix. The Debian layer scans
+and suppress only the binary that has no fix. A week later CVE-2026-111943
+(stdlib, fixed in go1.26.10) turned every PR red at once, Dependabot's
+included, with both binaries affected; CLI 29.9.2 and Compose 5.6.1 were
+already published and both were go1.26.10, so the pin bump cleared it and
+three of the four suppressions went with it. The Debian layer scans
 clean; everything that ever lived in this file was in a Go binary Docker built.
 
 **Check the pins before writing a suppression.** This is the rule the file was
