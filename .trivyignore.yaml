@@ -36,40 +36,16 @@
 # point: this is an exception list, not a switched-off gate.
 #
 #   vulnerabilities:
-#     - id: CVE-0000-00000 # what it is
-#       paths: ["usr/libexec/docker/cli-plugins/docker-compose"]
-#       statement: Why shimau cannot reach this code path.
-#       expired_at: 2026-12-01
-#
-# The scan prints suppressed rows (`TRIVY_SHOW_SUPPRESSED` in
-# `.github/workflows/ci.yml`), so anything accepted here stays visible in the
-# job log instead of disappearing.
-
-vulnerabilities:
-  # Docker Compose 5.6.0 is the newest published plugin and is still built
-  # with go1.26.8 and golang.org/x/net v0.58.0; the fixes are Go 1.26.9 and
-  # x/net 0.60.0. The CLI (29.9.0) is already on go1.26.9, so nothing else is
-  # accepted. Remove this entry when a Compose release built with Go >= 1.26.9
-  # is published and the pin moves to it.
-  - id: CVE-2026-78667 # net/http: DoS via crafted HTTP Range headers
+  # Docker Compose 5.6.1 and CLI 29.9.2 are the newest published and both are
+  # built with go1.26.10, which clears every stdlib finding. Compose still
+  # vendors golang.org/x/net v0.58.0; the fix is x/net 0.60.0. Remove this
+  # entry when a Compose release vendoring x/net >= 0.60.0 is published and the
+  # pin moves to it.
+  - id: CVE-2026-78669 # x/net/http2: DoS via excessive HTTP/2 SETTINGS
     paths: ["usr/libexec/docker/cli-plugins/docker-compose"]
     statement: >-
-      Server-side net/http behaviour, judged from the advisory title and not
+      Server-side HTTP/2 behaviour, judged from the advisory title and not
       traced through Compose's code. Compose runs as a short-lived child of
       shimau for one named operation and listens on no port; it only talks to
       the Docker socket and to registries.
-    expired_at: 2026-11-13
-  - id: CVE-2026-78669 # net/http, x/net/http2: DoS via excessive HTTP/2 SETTINGS
-    paths: ["usr/libexec/docker/cli-plugins/docker-compose"]
-    statement: >-
-      Same exposure as CVE-2026-78667: Compose serves no HTTP/2 and lives for
-      the duration of one operation. Also reported against golang.org/x/net
-      v0.58.0 in the same binary; this entry covers both rows.
-    expired_at: 2026-11-13
-  - id: CVE-2026-97031 # crypto/tls: DoS via multiple ECH outer extension references
-    paths: ["usr/libexec/docker/cli-plugins/docker-compose"]
-    statement: >-
-      TLS handshake parsing reached by an attacker-supplied ClientHello or
-      server hello. Compose accepts no inbound TLS; its outbound connections go
-      to the registries the operator's own Compose files name.
     expired_at: 2026-11-13
