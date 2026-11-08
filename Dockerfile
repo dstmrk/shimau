@@ -79,7 +79,7 @@ FROM debian:trixie-slim AS runtime
 # inherit whatever CLI version happens to be current on rebuild. Bumping these
 # is a reviewed change (spec §9.2).
 ARG DOCKER_CLI_VERSION=5:29.9.2-1~debian.13~trixie
-ARG DOCKER_COMPOSE_VERSION=5.6.1-1~debian.13~trixie
+ARG DOCKER_COMPOSE_VERSION=5.7.0-1~debian.13~trixie
 
 # `upgrade` here pulls in trixie's own security patches for the base image's
 # apt packages (gzip, perl-base, libsqlite3, ...); those are unrelated to the
