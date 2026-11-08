@@ -26,6 +26,9 @@ updates:
         update-types: [minor, patch]
     open-pull-requests-limit: 5
 
+  # Every bump in one PR, majors included: an action only runs in CI, so the
+  # PR's own run is the test, and `main` requires branches to be up to date —
+  # each extra PR re-runs the full suite on every sibling it overtakes.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -33,6 +36,9 @@ updates:
       day: monday
     cooldown:
       default-days: 7
+    groups:
+      all-actions:
+        patterns: ["*"]
     open-pull-requests-limit: 5
 
   - package-ecosystem: docker
@@ -42,4 +48,7 @@ updates:
       day: monday
     cooldown:
       default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
     open-pull-requests-limit: 3
