@@ -237,6 +237,16 @@ Trivy scans it. Only then does the multi-arch build run.
 
 If you change the Dockerfile, that job is what tells you whether it works.
 
+## Dependabot PRs and the up-to-date rule
+
+The `protect-main` ruleset requires branches to be up to date, so every merged
+PR forces a branch update and a full CI re-run on each sibling still open. The
+merge queue would remove that cost, but GitHub offers it only on
+organisation-owned repositories, and this one belongs to a personal account:
+do not add a `merge_group` trigger to `ci.yml`, because nothing would ever send
+it. The lever is the number of PRs: every ecosystem in `.github/dependabot.yml`
+groups its updates.
+
 ## The operator never edits compose.yaml
 
 `compose.yaml` reads every value from `.env` beside it, and the README's quick
