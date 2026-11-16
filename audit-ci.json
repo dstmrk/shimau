@@ -3,10 +3,10 @@
   "moderate": true,
   "allowlist": [
     {
-      "GHSA-vfj7-8cjw-p6xm": {
+      "GHSA-g3hv-75wg-m249": {
         "active": true,
-        "expiry": "2027-01-04",
-        "notes": "braces <= 3.0.3: stack exhaustion on an attacker-supplied nested brace pattern. No patched release exists. Reached only through the shadcn CLI, which globs paths the maintainer runs it on; the runtime image ships frontend/dist, never node_modules. Allowlisted by ID, not path: audit-ci derives the path from npm's via graph and it differs between runs."
+        "expiry": "2027-02-15",
+        "notes": "minimatch < 11.0.1: denial of service through globparts amplification on an attacker-supplied pattern. eslint and typescript-eslint already resolve 11.x; the one remaining path is shadcn > ts-morph > @ts-morph/common, which still declares ^10 and has no 10.x fix. Reached only through the shadcn CLI, which the maintainer runs by hand on their own paths; the runtime image ships frontend/dist, never node_modules. Allowlisted by ID, not path: audit-ci derives the path from npm's via graph and it differs between runs."
       }
     }
   ]
