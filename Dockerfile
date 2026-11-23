@@ -27,7 +27,7 @@ RUN npm run build
 # =============================================================================
 # Stage 2: backend — cross-compiled Rust binary
 # =============================================================================
-FROM --platform=$BUILDPLATFORM rust:1.98-trixie AS backend
+FROM --platform=$BUILDPLATFORM rust:1.99-trixie AS backend
 WORKDIR /build
 
 ARG TARGETARCH
