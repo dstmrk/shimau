@@ -159,6 +159,18 @@ one run to the next, so a path-scoped entry goes red at random. Run
 a semver-major downgrade of the parent (`shadcn` 4.x → 1.0.0), which is not a
 fix.
 
+When Dependabot reports it cannot update because a parent's range caps the
+child below the fix, prefer a parent-scoped entry in the `overrides` of
+`frontend/package.json` to an allowlist entry. The first one closed
+minimatch's globParts advisory (fixed in 11.0.1) while `shadcn` still pinned
+`ts-morph ^26`, whose `@ts-morph/common` asked for `minimatch ^10`; remove it
+once `shadcn` depends on `ts-morph` 28 or later. Before committing an override,
+run `shadcn add` on a scratch copy of `frontend/` to confirm the CLI still
+works with the bumped major. Regenerate the lockfile with npm 11 (`npx
+npm@11 install`), the version the `node:26` build image ships: npm 10 strips
+the `libc` fields from every platform-specific package, so the diff fills with
+unrelated noise.
+
 It was empty at v1.0.0, and that is the goal state. It is not always
 reachable: the CLI and the Compose plugin ship on separate schedules, so a Go
 stdlib patch can land in `docker-ce-cli` weeks before the plugin. In October
